@@ -28,3 +28,112 @@ header {
   min-height: 400px;
   background: #282b29;
 }
+
+
+#environment-panel {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 10;
+  display: grid;
+  gap: 8px;
+  width: min(230px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border: 1px solid #59615e;
+  border-radius: 10px;
+  background: #202624;
+  color: #f5f5ef;
+  font: 14px/1.35 system-ui, sans-serif;
+}
+
+#environment-panel select,
+#environment-panel input {
+  width: 100%;
+  margin: 0;
+}
+
+#environment-panel select {
+  padding: 5px;
+}
+
+#environment-panel small {
+  color: #cbd2ce;
+}
+
+.risk-legend,
+.risk-legend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.risk-legend {
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.risk-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.risk-low      { background: #36b98a; }
+.risk-moderate { background: #f3b544; }
+.risk-high     { background: #ea6058; }
+
+
+
+#route-panel {
+  position: fixed;
+  top: 90px;
+  right: 16px;
+  z-index: 10;
+  box-sizing: border-box;
+  width: min(250px, calc(100vw - 32px));
+  max-height: 65vh;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid #59615e;
+  border-radius: 10px;
+  background: #202624;
+  color: #f5f5ef;
+  font: 14px/1.35 system-ui, sans-serif;
+}
+
+#route-panel summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+#route-form,
+#route-form fieldset {
+  display: grid;
+  gap: 8px;
+}
+
+#route-form { margin-top: 12px; }
+#route-form fieldset { margin: 0; border: 1px solid #59615e; }
+
+#route-form label {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  align-items: center;
+  gap: 6px;
+}
+
+#route-form input { min-width: 0; }
+#route-form button { padding: 5px 8px; cursor: pointer; }
+#route-status { color: #cbd2ce; }
+
+#route-form input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+#route-form input[type="number"]::-webkit-inner-spin-button,
+#route-form input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

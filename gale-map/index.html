@@ -19,6 +19,53 @@
 
     <div id="map"></div>
 
+    <section id="environment-panel" aria-labelledby="environment-title">
+      <strong id="environment-title">Environment</strong>
+
+      <label for="environment-metric">Risk layer</label>
+      <select id="environment-metric">
+        <option value="off">Off</option>
+        <option value="temperature">Temperature</option>
+        <option value="radiation">Radiation</option>
+      </select>
+
+      <label for="sol-hour">
+        Local solar time · <output id="sol-hour-label" for="sol-hour">12:00</output>
+      </label>
+      <input id="sol-hour" type="range" min="0" max="23" step="1" value="12">
+
+      <div class="risk-legend" aria-label="Risk levels">
+        <span><i class="risk-low"></i>Low</span>
+        <span><i class="risk-moderate"></i>Moderate</span>
+        <span><i class="risk-high"></i>High</span>
+      </div>
+
+      <small id="environment-status" role="status">Layer off</small>
+    </section>
+
+    <details id="route-panel" open>
+      <summary>Route planner</summary>
+
+      <form id="route-form">
+        <fieldset>
+          <legend>A · Origin</legend>
+          <label>Longitude <input id="origin-lon" type="number" step="any" required></label>
+          <label>Latitude <input id="origin-lat" type="number" step="any" required></label>
+          <button type="button" id="pick-origin">Pick on map</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>B · Destination</legend>
+          <label>Longitude <input id="destination-lon" type="number" step="any" required></label>
+          <label>Latitude <input id="destination-lat" type="number" step="any" required></label>
+          <button type="button" id="pick-destination">Pick on map</button>
+        </fieldset>
+
+        <button type="submit" id="find-route">Find route</button>
+        <small id="route-status" role="status">Enter coordinates or pick a point on the map.</small>
+      </form>
+    </details>
+
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

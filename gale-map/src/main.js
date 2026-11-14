@@ -1,11 +1,14 @@
 import 'ol/ol.css';
 import './style.css';
 
+
 import Map from 'ol/Map.js';
 import View from 'ol/View.js';
 import ImageLayer from 'ol/layer/Image.js';
 import ImageStatic from 'ol/source/ImageStatic.js';
 import Projection from 'ol/proj/Projection.js';
+import { addEnvironmentPanel } from './environment.js';
+import { addRoutePlanner } from './route.js';
 
 // DEM bounds in Mars 2000 coordinates: west, south, east, north.
 const galeExtent = [
@@ -89,3 +92,6 @@ elevationSource.on('imageloaderror', () => {
     status.textContent = 'Elevation colors unavailable · Showing shaded relief';
   }
 });
+
+addEnvironmentPanel(map, galeExtent);
+addRoutePlanner(map, galeExtent);
