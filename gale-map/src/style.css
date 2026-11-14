@@ -1,0 +1,30 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px;
+  background: #f4f4ee;
+}
+
+#status {
+  font-size: 13px;
+}
+
+#map {
+  flex: 1;
+  min-height: 400px;
+  background: #282b29;
+}
