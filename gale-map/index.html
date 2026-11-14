@@ -2,20 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gale-map</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gale Navigator</title>
   </head>
 
-
   <body>
-    <header> 
-      <strong>Explore Gale</strong>
-      <input id = "file" type="file" accept=".tif,.tiff">
-      <span id="status">Select the mosaic once the download is complete</span>
+    <header>
+    <strong>Gale Navigator</strong>
+    <label for="map-style">Map style</label>
+    <select id="map-style">
+      <option value="relief" selected>Shaded relief</option>
+      <option value="elevation">Elevation colors</option>
+    </select>
+    <span id="status">Loading Gale Crater terrain…</span>
     </header>
 
     <div id="map"></div>
 
-    <script type="moduel" src="/src/main.js"></script>
+    <script type="module" src="/src/main.js"></script>
   </body>
 </html>
