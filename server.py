@@ -25,7 +25,11 @@ if os.name == "nt" or not os.path.exists(PATHFINDER_BIN):
         PATHFINDER_BIN = PATHFINDER_BIN + ".exe"
 DEM_FILE = os.path.join(BASE_DIR, "Gale_DEM_SMG_1m.tif")
 if not os.path.exists(DEM_FILE):
-    DEM_FILE = os.path.join(BASE_DIR, "gale_dem_ligero.tif")
+    alt_dem = os.path.join(BASE_DIR, "..", "geotiff", "Gale_DEM_SMG_1m.tif")
+    if os.path.exists(alt_dem):
+        DEM_FILE = os.path.abspath(alt_dem)
+    else:
+        DEM_FILE = os.path.join(BASE_DIR, "gale_dem_ligero.tif")
 
 # Extensión válida del DEM en Gale Crater (coincide con galeExtent en gale-map)
 GALE_EXTENT = {
@@ -64,6 +68,16 @@ def compute_route():
     mode_str = str(data.get("mode", "rover")).lower()
     is_rover = 1 if ("rover" in mode_str or data.get("isRover") == 1) else 0
     step_meters = int(data.get("stepMeters", 10))
+
+    # Soporte para Tormenta Solar (SPE)
+    spe_active = bool(data.get("speActive", False))
+    spe_rate = float(data.get("speRate", 0.0))
+    spe_mult = float(data.get("speMultiplier", 1.0))
+    spe_onset = float(data.get("speOnset", 0.0))
+    if spe_rate <= 0.0 and spe_mult > 1.0:
+        spe_rate = (spe_mult - 1.0) * 26.7
+    elif spe_active and spe_rate <= 0.0:
+        spe_rate = 150.0
 
     if not origin or not destination or len(origin) < 2 or len(destination) < 2:
         return jsonify({"error": "Parámetros 'origin' y 'destination' requeridos como [lon, lat]"}), 400
@@ -126,6 +140,8 @@ def compute_route():
             tmp_geojson,
             DEM_FILE
         ]
+        if spe_rate > 0.0:
+            cmd.extend(["--spe", f"{spe_rate:.2f}", "--spe-onset", f"{spe_onset:.1f}"])
 
         t0 = time.time()
         proc = subprocess.run(cmd, cwd=os.path.join(BASE_DIR, "pathfinder"),
