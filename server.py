@@ -52,6 +52,7 @@ M_PER_DEG_LON = MARS_RADIUS_M * math.cos(-4.58 * math.pi / 180.0) * (math.pi / 1
 STORM_STATE = {
     "active": False,
     "frozen": False,
+    "speed_mult": 1.0,
     "spawn_time": 0.0,
     "spawn_lon": 137.320,
     "spawn_lat": -4.620,
@@ -112,8 +113,8 @@ def get_current_storm_snapshot():
         motion = "stationary"
     else:
         dt = max(0.0, time.time() - STORM_STATE["spawn_time"])
-        # Avance visual suave en el mapa (~15-20 m cada 2s)
-        sim_dt = dt * 250.0
+        # Avance visual fluido multiplicado por el selector de velocidad (1x, 4x, 10x)
+        sim_dt = dt * 600.0 * float(STORM_STATE.get("speed_mult", 1.0))
         cur_lon = STORM_STATE["spawn_lon"] + (STORM_STATE["vel_east_ms"] * sim_dt) / M_PER_DEG_LON
         cur_lat = STORM_STATE["spawn_lat"] + (STORM_STATE["vel_north_ms"] * sim_dt) / M_PER_DEG_LAT
         ve_effective = round(STORM_STATE["vel_east_ms"], 4)
@@ -365,6 +366,14 @@ def storm_telemetry():
             STORM_STATE["active"] = False
             STORM_STATE["frozen"] = False
             return jsonify({"active": False, "storm": None})
+        if body.get("action") == "speed":
+            snap = get_current_storm_snapshot()
+            if snap is not None and not STORM_STATE.get("frozen"):
+                STORM_STATE["spawn_lon"] = snap["center"][0]
+                STORM_STATE["spawn_lat"] = snap["center"][1]
+                STORM_STATE["spawn_time"] = time.time()
+            STORM_STATE["speed_mult"] = float(body.get("speedMultiplier", 1.0))
+            return jsonify(get_current_storm_snapshot() or {"active": False, "storm": None})
         if body.get("action") == "freeze":
             snap = get_current_storm_snapshot()
             if snap is not None:

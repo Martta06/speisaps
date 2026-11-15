@@ -145,6 +145,8 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
     let picking = null;
     let route = null;
     let pending = null;
+    let departureHour = Number(hour.value) || 0;
+    let routeShiftedClock = false;
 
     function fitRouteView() {
         if (!readPoint('origin') || !readPoint('destination')) return;
@@ -301,6 +303,12 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
             rover.setOrigin(null);
             status.textContent = '';
             if (telemetryPanel) telemetryPanel.hidden = true;
+            if (routeShiftedClock) {
+                routeShiftedClock = false;
+                window.dispatchEvent(new CustomEvent('rover-time-step', {
+                    detail: { localHour: departureHour, active: false, arrived: true },
+                }));
+            }
 
             const view = map.getView();
             view.cancelAnimations();
@@ -338,15 +346,35 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
     });
 
     hour.addEventListener('input', () => {
+        departureHour = Number(hour.value) || 0;
+        routeShiftedClock = false;
         clearRoute();
         status.textContent = 'Departure time updated. Select Find route to recalculate.';
     });
 
-    async function calculateRoute({ autoRecalc = false } = {}) {
-        setPicking(null);
-        clearRoute();
+    const playTimeBtn = document.getElementById('play-time');
+    if (playTimeBtn) {
+        playTimeBtn.addEventListener('click', () => {
+            if (!route) {
+                routeShiftedClock = false;
+            }
+        });
+    }
 
-        const origin = readPoint('origin');
+    async function calculateRoute({ autoRecalc = false, keepProgress = false } = {}) {
+        setPicking(null);
+
+        const roverState = rover.getState?.() ?? { active: false };
+        const replanFromRover = Boolean(keepProgress && roverState.active && roverState.position && route);
+
+        if (!replanFromRover) {
+            clearRoute();
+        } else {
+            pending?.abort();
+            pending = null;
+        }
+
+        const origin = replanFromRover ? roverState.position : readPoint('origin');
         const destination = readPoint('destination');
         if (!origin || !destination) {
             if (!autoRecalc) {
@@ -362,15 +390,22 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
             return;
         }
 
+        if (!routeShiftedClock) {
+            departureHour = Number(hour.value) || 0;
+        }
+        const routeDepartureHour = replanFromRover ? roverState.localHour : departureHour;
+
         const solarState = getSolarState?.() ?? { speActive: false, speRate: 0, speMultiplier: 1.0, speOnset: 0 };
         const stormState = getCurrentStorm?.() ?? null;
 
         const controller = new AbortController();
         pending = controller;
-        submit.disabled = true;
-        status.textContent = autoRecalc
-            ? 'Emergency condition updated · Recalculating route…'
-            : 'Finding route…';
+        if (!keepProgress) {
+            submit.disabled = true;
+            status.textContent = autoRecalc
+                ? 'Emergency condition updated · Recalculating route…'
+                : 'Finding route…';
+        }
 
         try {
             const response = await fetch('/api/route', {
@@ -380,7 +415,7 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
                 body: JSON.stringify({
                     origin,
                     destination,
-                    localHour: Number(hour.value),
+                    localHour: routeDepartureHour,
                     mode: travelMode.value,
                     stepMeters: 20,
                     speActive: Boolean(solarState.speActive),
@@ -420,17 +455,32 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
                 return [lon, lat];
             });
 
-            route = new Feature({
-                geometry: new LineString(mapCoordinates),
-                samples: points,
-            });
+            if (replanFromRover && rover.getState?.()?.active) {
+                const splicedCoords = rover.spliceRoute?.(data.full_coordinates);
+                const finalCoords = Array.isArray(splicedCoords) && splicedCoords.length >= 2
+                    ? splicedCoords
+                    : mapCoordinates;
 
-            route.setStyle(routeStyle);
-            source.addFeature(route);
-            rover.play(data.full_coordinates);
-            updateTelemetryPanel(data, Number(hour.value));
-
-            fitRouteView();
+                if (route) source.removeFeature(route);
+                route = new Feature({
+                    geometry: new LineString(finalCoords),
+                    samples: points,
+                });
+                route.setStyle(routeStyle);
+                source.addFeature(route);
+            } else {
+                if (route) source.removeFeature(route);
+                route = new Feature({
+                    geometry: new LineString(mapCoordinates),
+                    samples: points,
+                });
+                route.setStyle(routeStyle);
+                source.addFeature(route);
+                routeShiftedClock = true;
+                rover.play(data.full_coordinates, departureHour);
+                updateTelemetryPanel(data, departureHour);
+                fitRouteView();
+            }
 
             const props = data?.properties ?? {};
             const distVal = props.total_distance_m ?? data.distance_m;
@@ -473,13 +523,19 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
 
     window.addEventListener('solar-change', () => {
         if (readPoint('origin') && readPoint('destination')) {
-            calculateRoute({ autoRecalc: true });
+            calculateRoute({ autoRecalc: true, keepProgress: Boolean(rover.getState?.()?.active) });
         }
     });
 
     window.addEventListener('storm-change', () => {
         if (readPoint('origin') && readPoint('destination')) {
-            calculateRoute({ autoRecalc: true });
+            calculateRoute({ autoRecalc: true, keepProgress: Boolean(rover.getState?.()?.active) });
+        }
+    });
+
+    window.addEventListener('storm-drift', () => {
+        if (rover.getState?.()?.active && route && !pending && readPoint('origin') && readPoint('destination')) {
+            calculateRoute({ autoRecalc: true, keepProgress: true });
         }
     });
 }

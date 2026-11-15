@@ -64,11 +64,18 @@ export function addStormOverlay(map) {
     const title = document.getElementById('storm-title');
     const details = document.getElementById('storm-details');
     const freezeBtn = document.getElementById('freeze-storm');
-    let demoTimer = null;
+    let animFrame = 0;
     let currentStorm = null;
-    let usingLocalFallback = false;
     let isFrozen = false;
-    let savedVelocity = { velEastMs: 8.0, velNorthMs: 0.0, motion: 'approaching', spec: null };
+    let simSpeedMult = 1;
+    // Velocidad visual en m/s reales a 1× (~250 m/s -> recorre ~7.5 km en 30 s a 1×, muy fluido a 60 FPS)
+    const VISUAL_DRIFT_MS_AT_1X = 250;
+    let activeDrift = null;
+    let savedVelocity = { velEastMs: 0.03, velNorthMs: 0.0, dirCos: 1.0, dirSin: 0.0, motion: 'approaching', spec: null };
+
+    window.addEventListener('sim-speed-change', event => {
+        simSpeedMult = event.detail?.multiplier ?? 1;
+    });
 
     function randomBetween(min, max) {
         return min + Math.random() * (max - min);
@@ -102,15 +109,16 @@ export function addStormOverlay(map) {
         const diameterM = Math.round(randomBetween(3500, 8500));
         const windSpeedMs = Number(randomBetween(12 + dangerLevel * 3, 18 + dangerLevel * 4.5).toFixed(1));
         const angle = randomBetween(-Math.PI * 0.75, Math.PI * 0.75);
-        // Velocidad de deriva para la predicción en C (~0.02 - 0.05 m/s):
-        // desplaza el centro ~60-150 m durante la travesía para sesgar el rodeo por barlovento,
-        // pero manteniendo el núcleo bloqueado alineado con el círculo visible en pantalla.
-        const driftSpeed = randomBetween(0.02, 0.05);
-        const velEastMs = Number((driftSpeed * Math.cos(angle)).toFixed(4));
-        const velNorthMs = Number((driftSpeed * Math.sin(angle)).toFixed(4));
+        // Velocidad simulada coherente con VISUAL_DRIFT_MS_AT_1X / BASE_PLAY_SPEED (250 / 600 ≈ 0.42 m/s)
+        // para que el cono predictivo en C anticipe hacia dónde avanza el frente de la tormenta.
+        const driftSpeed = randomBetween(0.35, 0.50);
+        const dirCos = Math.cos(angle);
+        const dirSin = Math.sin(angle);
+        const velEastMs = Number((driftSpeed * dirCos).toFixed(4));
+        const velNorthMs = Number((driftSpeed * dirSin).toFixed(4));
         const motion = velEastMs >= 0 ? 'approaching' : 'receding';
         // Multiplicador alto para que tanto el núcleo como la periferia fuercen un rodeo claro
-        const severityPenalty = Number((80.0 + dangerLevel * 40.0).toFixed(1));
+        const severityPenalty = Number((120.0 + dangerLevel * 50.0).toFixed(1));
 
         return {
             center: [Number(lon.toFixed(6)), Number(lat.toFixed(6))],
@@ -119,6 +127,8 @@ export function addStormOverlay(map) {
             dangerLevel,
             velEastMs,
             velNorthMs,
+            dirCos,
+            dirSin,
             motion,
             severityPenalty,
         };
@@ -209,15 +219,14 @@ export function addStormOverlay(map) {
     }
 
     function stopDemo() {
-        clearInterval(demoTimer);
-        demoTimer = null;
+        cancelAnimationFrame(animFrame);
+        animFrame = 0;
+        activeDrift = null;
     }
 
   // Entry point for future backend updates.
     function updateStorm(storm) {
-        if (usingLocalFallback) return;
-        // Si el backend antiguo devuelve la tormenta estática por defecto sin 'active',
-        // la ignoramos hasta que el usuario pulse "Simulate dust storm".
+        if (activeDrift || currentStorm) return;
         if (storm && storm.active === undefined && !currentStorm) {
             return;
         }
@@ -229,23 +238,36 @@ export function addStormOverlay(map) {
     }
 
     function isLocalFallback() {
-        return usingLocalFallback;
+        return true;
     }
 
     function startLocalDriftFrom(spec) {
         stopDemo();
-        usingLocalFallback = true;
-        const startedAt = performance.now();
+        let lastTime = performance.now();
+        let lastRecalcTime = lastTime;
+        let curLon = spec.center[0];
+        let curLat = spec.center[1];
         const [xScale, yScale] = metresPerDegree(spec.center[1]);
+        const hypot = Math.hypot(spec.velEastMs ?? 0, spec.velNorthMs ?? 0);
+        const dirCos = Number.isFinite(spec.dirCos)
+            ? spec.dirCos
+            : (hypot > 1e-6 ? (spec.velEastMs / hypot) : 1.0);
+        const dirSin = Number.isFinite(spec.dirSin)
+            ? spec.dirSin
+            : (hypot > 1e-6 ? (spec.velNorthMs / hypot) : 0.0);
 
-        function frame() {
-            if (isFrozen) return;
-            const seconds = (performance.now() - startedAt) / 1000;
-            const simulatedSeconds = seconds * 250; // avance visual suave (~15-20 m cada 2s en el mapa)
-            const curLon = spec.center[0] + (spec.velEastMs * simulatedSeconds) / xScale;
-            const curLat = spec.center[1] + (spec.velNorthMs * simulatedSeconds) / yScale;
+        activeDrift = { spec, dirCos, dirSin };
 
-            // Comprobar si salió de Gale Crater
+        function animate(now) {
+            if (isFrozen || !activeDrift) return;
+            const dt = (now - lastTime) / 1000;
+            lastTime = now;
+
+            const stepMeters = dt * VISUAL_DRIFT_MS_AT_1X * simSpeedMult;
+            curLon += (dirCos * stepMeters) / xScale;
+            curLat += (dirSin * stepMeters) / yScale;
+
+            // Comprobar si salió por completo de Gale Crater
             const radiusDeg = (spec.diameterM / 2) / yScale;
             if (
                 curLon - radiusDeg > 137.7298 ||
@@ -254,7 +276,6 @@ export function addStormOverlay(map) {
                 curLat + radiusDeg < -4.9254
             ) {
                 stopDemo();
-                usingLocalFallback = false;
                 renderStorm(null);
                 window.dispatchEvent(new CustomEvent('storm-change', { detail: null }));
                 return;
@@ -272,44 +293,59 @@ export function addStormOverlay(map) {
                 motion: spec.motion,
                 simulated: true,
             });
+
+            // Recalcular ruta periódicamente (~cada 2.5 s en 1×, más frecuente en 4×/10×) mientras deriva
+            const recalcIntervalMs = 2500 / Math.sqrt(simSpeedMult);
+            if (now - lastRecalcTime >= recalcIntervalMs) {
+                lastRecalcTime = now;
+                window.dispatchEvent(new CustomEvent('storm-drift', { detail: currentStorm }));
+            }
+
+            animFrame = requestAnimationFrame(animate);
         }
 
-        frame();
-        demoTimer = setInterval(frame, 2000);
+        renderStorm({
+            active: true,
+            center: [curLon, curLat],
+            diameterM: spec.diameterM,
+            windSpeedMs: spec.windSpeedMs,
+            dangerLevel: spec.dangerLevel,
+            velEastMs: spec.velEastMs,
+            velNorthMs: spec.velNorthMs,
+            severityPenalty: spec.severityPenalty,
+            motion: spec.motion,
+            simulated: true,
+        });
+        animFrame = requestAnimationFrame(animate);
     }
 
     document.getElementById('start-storm').addEventListener('click', async () => {
         stopDemo();
-        usingLocalFallback = false;
         isFrozen = false;
 
         const spec = generateRandomStormSpec();
         savedVelocity = {
             velEastMs: spec.velEastMs,
             velNorthMs: spec.velNorthMs,
+            dirCos: spec.dirCos,
+            dirSin: spec.dirSin,
             motion: spec.motion,
             spec,
         };
 
+        // Animamos siempre a 60 FPS en el cliente para evitar saltos de red o rebotes ("bounce")
+        startLocalDriftFrom(spec);
+        window.dispatchEvent(new CustomEvent('storm-change', { detail: currentStorm }));
+
         try {
-            const res = await fetch('/api/storm', {
+            await fetch('/api/storm', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(spec),
             });
-            if (res.ok) {
-                const stormData = await res.json();
-                renderStorm(stormData);
-                window.dispatchEvent(new CustomEvent('storm-change', { detail: currentStorm }));
-                return;
-            }
-        } catch (err) {
-            console.warn('Backend /api/storm POST unavailable, using local storm simulation', err);
+        } catch (_err) {
+            // Ignorar si el backend no tiene /api/storm activo
         }
-
-        // Fallback local si server.py no está corriendo o es una versión anterior sin POST /api/storm
-        startLocalDriftFrom(spec);
-        window.dispatchEvent(new CustomEvent('storm-change', { detail: currentStorm }));
     });
 
     if (freezeBtn) {
@@ -320,23 +356,6 @@ export function addStormOverlay(map) {
 
             if (isFrozen) {
                 stopDemo();
-                try {
-                    const res = await fetch('/api/storm', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'freeze' }),
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data?.active) {
-                            renderStorm(data);
-                            window.dispatchEvent(new CustomEvent('storm-change', { detail: currentStorm }));
-                            return;
-                        }
-                    }
-                } catch (_e) {
-                    // Fallback local
-                }
                 renderStorm({
                     ...currentStorm,
                     frozen: true,
@@ -346,38 +365,40 @@ export function addStormOverlay(map) {
                     simulated: true,
                 });
                 window.dispatchEvent(new CustomEvent('storm-change', { detail: currentStorm }));
+                try {
+                    await fetch('/api/storm', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'freeze' }),
+                    });
+                } catch (_e) {
+                    // Fallback local
+                }
             } else {
-                // Reanudar movimiento desde donde estaba congelada
+                // Reanudar movimiento a 60 FPS desde la posición exacta donde estaba congelada
                 const resumeSpec = {
                     ...(savedVelocity.spec ?? currentStorm),
                     center: [...currentStorm.center],
                     velEastMs: savedVelocity.velEastMs,
                     velNorthMs: savedVelocity.velNorthMs,
+                    dirCos: savedVelocity.dirCos,
+                    dirSin: savedVelocity.dirSin,
                     motion: savedVelocity.motion,
                 };
                 savedVelocity.spec = resumeSpec;
 
-                if (!usingLocalFallback) {
-                    try {
-                        const res = await fetch('/api/storm', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'unfreeze' }),
-                        });
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (data?.active) {
-                                renderStorm(data);
-                                window.dispatchEvent(new CustomEvent('storm-change', { detail: currentStorm }));
-                                return;
-                            }
-                        }
-                    } catch (_e) {
-                        // Fallback local
-                    }
-                }
                 startLocalDriftFrom(resumeSpec);
                 window.dispatchEvent(new CustomEvent('storm-change', { detail: currentStorm }));
+
+                try {
+                    await fetch('/api/storm', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'unfreeze' }),
+                    });
+                } catch (_e) {
+                    // Fallback local
+                }
             }
         });
     }
@@ -411,6 +432,8 @@ export function addStormOverlay(map) {
             dangerLevel: currentStorm.dangerLevel,
             velEastMs: isFrozen ? 0.0 : savedVelocity.velEastMs,
             velNorthMs: isFrozen ? 0.0 : savedVelocity.velNorthMs,
+            dirCos: savedVelocity.dirCos,
+            dirSin: savedVelocity.dirSin,
             motion: isFrozen ? 'stationary' : savedVelocity.motion,
             severityPenalty: currentStorm.severityPenalty,
             frozen: isFrozen,
@@ -420,10 +443,18 @@ export function addStormOverlay(map) {
             ...movedSpec,
             velEastMs: savedVelocity.velEastMs,
             velNorthMs: savedVelocity.velNorthMs,
+            dirCos: savedVelocity.dirCos,
+            dirSin: savedVelocity.dirSin,
             motion: savedVelocity.motion,
         };
 
-        renderStorm({ active: true, ...movedSpec });
+        if (isFrozen) {
+            renderStorm({ active: true, ...movedSpec });
+        } else {
+            startLocalDriftFrom(savedVelocity.spec);
+        }
+
+        window.dispatchEvent(new CustomEvent('storm-change', { detail: currentStorm }));
 
         try {
             await fetch('/api/storm', {
@@ -434,25 +465,18 @@ export function addStormOverlay(map) {
         } catch (_e) {
             // Fallback local
         }
-
-        if (!isFrozen && usingLocalFallback) {
-            startLocalDriftFrom(savedVelocity.spec);
-        }
-
-        window.dispatchEvent(new CustomEvent('storm-change', { detail: currentStorm }));
     });
 
     document.getElementById('stop-storm').addEventListener('click', async () => {
         stopDemo();
-        usingLocalFallback = false;
         isFrozen = false;
         renderStorm(null);
+        window.dispatchEvent(new CustomEvent('storm-change', { detail: null }));
         try {
             await fetch('/api/storm', { method: 'DELETE' });
         } catch (_e) {
             // Ignore offline error
         }
-        window.dispatchEvent(new CustomEvent('storm-change', { detail: null }));
     });
 
   // Prevent duplicate demo timers after Vite hot reloads.

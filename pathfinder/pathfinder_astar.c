@@ -143,8 +143,8 @@ bool astar_find_path(const DemContext              *ctx,
     int base_margin_px = 20 * step;
     int storm_margin_px = 0;
     if (env_local.dust_storm_active && env_local.storm_radius_m > 0.0) {
-        /* Garantizar espacio suficiente (~1.5x radio) para rodear la tormenta sin salirse de la ventana */
-        storm_margin_px = (int)ceil(env_local.storm_radius_m * 1.5);
+        /* Garantizar espacio suficiente (~2.2x radio) para rodear el frente predicho sin salirse de la ventana */
+        storm_margin_px = (int)ceil(env_local.storm_radius_m * 2.2);
     }
     if (env_local.spe_active && env_local.spe_storm_rate_uSv_h > 0.0) {
         /* Margen ampliado (~1.5 km) durante SPE para permitir buscar cañones, escarpes y depresiones */
@@ -309,41 +309,56 @@ bool astar_find_path(const DemContext              *ctx,
                 double m_per_deg_lat = MARS_RADIUS_M * (M_PI / 180.0);
                 double m_per_deg_lon = MARS_RADIUS_M * cos(lat_ref_rad) * (M_PI / 180.0);
 
-                double storm_lon_t = env_local.storm_center_lon
-                    + (env_local.storm_vel_east_ms * tentative_t) / m_per_deg_lon;
-                double storm_lat_t = env_local.storm_center_lat
-                    + (env_local.storm_vel_north_ms * tentative_t) / m_per_deg_lat;
+                /*
+                 * Evaluamos TANTO la posición actual (t=0, círculo visible en pantalla)
+                 * COMO la posición futura predicha en la dirección de avance de la tormenta
+                 * (acotada a 0.85 * R por delante del frente para crear un escudo de barlovento
+                 * sin despegarse nunca del círculo dibujado en el mapa).
+                 */
+                double shift_east_m  = env_local.storm_vel_east_ms  * tentative_t;
+                double shift_north_m = env_local.storm_vel_north_ms * tentative_t;
+                double shift_norm_m  = hypot(shift_east_m, shift_north_m);
+                double max_lead_m    = env_local.storm_radius_m * 0.85;
+                if (shift_norm_m > max_lead_m && shift_norm_m > 1e-6) {
+                    double scale = max_lead_m / shift_norm_m;
+                    shift_east_m  *= scale;
+                    shift_north_m *= scale;
+                }
 
-                double d_m = mars_haversine_m(n_lat, n_lon, storm_lat_t, storm_lon_t);
-                double r_storm = env_local.storm_radius_m;
-                double r_core  = r_storm * 0.3;
+                double storm_lon_t = env_local.storm_center_lon + shift_east_m  / m_per_deg_lon;
+                double storm_lat_t = env_local.storm_center_lat + shift_north_m / m_per_deg_lat;
+
+                double d_now  = mars_haversine_m(n_lat, n_lon, env_local.storm_center_lat, env_local.storm_center_lon);
+                double d_pred = mars_haversine_m(n_lat, n_lon, storm_lat_t, storm_lon_t);
+                double d_m    = (d_now < d_pred) ? d_now : d_pred;
+
+                double r_storm = env_local.storm_radius_m * 1.12; /* Margen exterior 112% R */
+                double r_core  = env_local.storm_radius_m * 0.55; /* Núcleo bloqueado 55% R */
 
                 if (d_m < r_core) {
                     /*
-                     * Núcleo denso (< 30% del radio): bloqueo duro (INFINITY),
-                     * SALVO que la tormenta haya spawneado encima del explorador y este paso
+                     * Núcleo denso (< 55% del radio): bloqueo duro (INFINITY),
+                     * SALVO que la tormenta esté encima del explorador y este paso
                      * se esté alejando del centro (maniobra de evacuación del núcleo).
                      */
                     double c_lon = 0.0, c_lat = 0.0;
                     dem_pixel_to_geo(ctx, current.x, current.y, &c_lon, &c_lat);
-                    double d_curr = mars_haversine_m(c_lat, c_lon, storm_lat_t, storm_lon_t);
+                    double dc_now  = mars_haversine_m(c_lat, c_lon, env_local.storm_center_lat, env_local.storm_center_lon);
+                    double dc_pred = mars_haversine_m(c_lat, c_lon, storm_lat_t, storm_lon_t);
+                    double d_curr  = (dc_now < dc_pred) ? dc_now : dc_pred;
                     if (d_curr < r_core && d_m > d_curr) {
                         /* Evacuación de emergencia hacia el exterior del núcleo */
-                        storm_penalty = (double)env_local.storm_severity_penalty * 10.0;
+                        storm_penalty = (double)env_local.storm_severity_penalty * 15.0;
                     } else {
                         storm_penalty = INFINITY;
                     }
                 } else if (d_m < r_storm) {
                     /*
-                     * Periferia (30% a 100% del radio): perfil cuadrático-exponencial suave.
-                     * u = 0 en el borde exterior (d = R, derivada nula, sin quiebros bruscos)
-                     * u = 1 en la frontera del núcleo (d = 0.3*R, pared exponencial pronunciada)
-                     * Física: la opacidad óptica (Beer-Lambert) y la presión dinámica del viento
-                     * (1/2 * rho * v^2) crecen de forma cuadrática/exponencial hacia el ojo.
+                     * Periferia (55% a 112% del radio): perfil cuadrático-exponencial pronunciado.
                      */
                     double u = (r_storm - d_m) / (r_storm - r_core); /* u en (0, 1] */
                     storm_penalty = (double)env_local.storm_severity_penalty
-                                  * (u * u) * exp(1.5 * u);
+                                  * (u * u) * exp(2.0 * u);
                 }
             }
 

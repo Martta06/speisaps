@@ -45,6 +45,29 @@ export function addRover(map) {
     map.addLayer(layer);
 
     let frame = 0;
+    let speedMultiplier = 1;
+    let isPaused = false;
+    let isRoverActive = false;
+    let currentElapsed = 0;
+    let activeSamples = null;
+    let activeSegment = 0;
+    let activeStartHour = 0;
+    let lastNow = 0;
+    // 600 s simulados por segundo real en 1× (10 min solares/s -> 1 h de ruta cada 6 s reales)
+    const BASE_PLAY_SPEED = 600;
+
+    window.addEventListener('sim-speed-change', event => {
+        speedMultiplier = event.detail?.multiplier ?? 1;
+    });
+
+    window.addEventListener('sim-play-toggle', event => {
+        if (!isRoverActive) return;
+        isPaused = !event.detail?.playing;
+        lastNow = performance.now();
+        status.textContent = isPaused
+            ? 'Route paused'
+            : `Route playback · ${speedMultiplier}×`;
+    });
 
     function place(position) {
         const geometry = marker.getGeometry();
@@ -57,6 +80,16 @@ export function addRover(map) {
 
     function setOrigin(position) {
         cancelAnimationFrame(frame);
+        currentElapsed = 0;
+        activeSamples = null;
+        activeSegment = 0;
+        if (isRoverActive) {
+            isRoverActive = false;
+            isPaused = false;
+            window.dispatchEvent(new CustomEvent('rover-time-step', {
+                detail: { active: false, arrived: false },
+            }));
+        }
 
         if (!position) {
             marker.setGeometry(undefined);
@@ -68,7 +101,82 @@ export function addRover(map) {
         status.textContent = 'At origin';
     }
 
-    function play(samples, speed = 1) {
+    function getState() {
+        const coords = marker.getGeometry()?.getCoordinates();
+        return {
+            active: isRoverActive,
+            position: coords ? [coords[0], coords[1]] : null,
+            elapsed: currentElapsed,
+            localHour: (((activeStartHour + currentElapsed / 3600) % 24) + 24) % 24,
+        };
+    }
+
+    // Empalma una nueva ruta desde la posición viva actual del rover hasta B sin teletransportarlo jamás
+    function spliceRoute(newFutureSamples) {
+        if (
+            !isRoverActive ||
+            !Array.isArray(activeSamples) ||
+            !Array.isArray(newFutureSamples) ||
+            newFutureSamples.length < 2
+        ) {
+            return null;
+        }
+
+        const curPos = marker.getGeometry()?.getCoordinates();
+        if (!curPos) return null;
+
+        const traversed = [];
+        for (let i = 0; i < activeSamples.length; i++) {
+            if (activeSamples[i][3] < currentElapsed) {
+                traversed.push(activeSamples[i]);
+            } else {
+                break;
+            }
+        }
+
+        const refSample = activeSamples[Math.min(activeSegment, activeSamples.length - 1)] ?? [0, 0, 0, 0, 0, 0];
+        traversed.push([
+            curPos[0],
+            curPos[1],
+            refSample[2] ?? 0,
+            currentElapsed,
+            refSample[4] ?? 0,
+            refSample[5] ?? 0,
+        ]);
+
+        // Saltamos los primeros puntos que hayan quedado muy pegados durante los ~150 ms de cálculo
+        let startIdx = 1;
+        while (
+            startIdx + 1 < newFutureSamples.length &&
+            newFutureSamples[startIdx][3] < 25
+        ) {
+            startIdx++;
+        }
+
+        const futureShifted = [];
+        let prevTime = currentElapsed;
+        for (let i = startIdx; i < newFutureSamples.length; i++) {
+            const pt = newFutureSamples[i];
+            const rawTargetTime = currentElapsed + Math.max(25, pt[3]);
+            const nextTime = Math.max(prevTime + 5, rawTargetTime);
+            prevTime = nextTime;
+            futureShifted.push([
+                pt[0],
+                pt[1],
+                pt[2] ?? 0,
+                nextTime,
+                pt[4] ?? 0,
+                pt[5] ?? 0,
+            ]);
+        }
+
+        activeSamples = [...traversed, ...futureShifted];
+        activeSegment = traversed.length - 1;
+
+        return activeSamples.map(pt => [pt[0], pt[1]]);
+    }
+
+    function play(samples, departureHour = 0, speed = 1) {
         cancelAnimationFrame(frame);
 
         const valid = Array.isArray(samples) && samples.length >= 2 &&
@@ -86,29 +194,77 @@ export function addRover(map) {
             return;
         }
 
-        const start = performance.now();
-        const last = samples[samples.length - 1];
-        let segment = 0;
-        place(samples[0].slice(0, 2));
-        status.textContent = `Route playback · ${speed}×`;
+        activeStartHour = Number.isFinite(departureHour) ? departureHour : 0;
+        activeSamples = samples.map(pt => [...pt]);
+        activeSegment = 0;
+        currentElapsed = 0;
+        lastNow = performance.now();
+        isPaused = false;
+        isRoverActive = true;
+
+        place(activeSamples[0].slice(0, 2));
+        status.textContent = `Route playback · ${speed * speedMultiplier}×`;
+
+        window.dispatchEvent(new CustomEvent('rover-time-step', {
+            detail: {
+                localHour: ((activeStartHour % 24) + 24) % 24,
+                active: true,
+                arrived: false,
+            },
+        }));
 
         function animate(now) {
-            const elapsed = (now - start) * speed / 1000;
+            const dt = (now - lastNow) / 1000;
+            lastNow = now;
 
-            if (elapsed >= last[3]) {
+            if (!activeSamples || activeSamples.length < 2) return;
+            const last = activeSamples[activeSamples.length - 1];
+
+            if (!isPaused) {
+                currentElapsed += dt * speed * BASE_PLAY_SPEED * speedMultiplier;
+                status.textContent = `Route playback · ${speed * speedMultiplier}×`;
+            }
+
+            if (currentElapsed >= last[3]) {
+                isRoverActive = false;
+                isPaused = false;
+                currentElapsed = last[3];
+                const arrivalHour = (((activeStartHour + last[3] / 3600) % 24) + 24) % 24;
                 place(last.slice(0, 2));
                 status.textContent = 'Arrived at destination';
+                window.dispatchEvent(new CustomEvent('rover-time-step', {
+                    detail: {
+                        localHour: arrivalHour,
+                        active: false,
+                        arrived: true,
+                    },
+                }));
                 return;
             }
 
+            const currentHour = (((activeStartHour + currentElapsed / 3600) % 24) + 24) % 24;
+            window.dispatchEvent(new CustomEvent('rover-time-step', {
+                detail: {
+                    localHour: currentHour,
+                    active: true,
+                    arrived: false,
+                },
+            }));
+
             // Advance past every waypoint already reached, including equal timestamps.
-            while (segment + 1 < samples.length && samples[segment + 1][3] <= elapsed) {
-                segment++;
+            while (
+                activeSegment + 1 < activeSamples.length &&
+                activeSamples[activeSegment + 1][3] <= currentElapsed
+            ) {
+                activeSegment++;
             }
 
-            const a = samples[segment];
-            const b = samples[segment + 1];
-            const fraction = elapsed <= a[3] ? 0 : (elapsed - a[3]) / (b[3] - a[3]);
+            const a = activeSamples[activeSegment];
+            const b = activeSamples[activeSegment + 1];
+            const span = b[3] - a[3];
+            const fraction = currentElapsed <= a[3] || span <= 0
+                ? 0
+                : (currentElapsed - a[3]) / span;
 
             place([
                 a[0] + fraction * (b[0] - a[0]),
@@ -129,5 +285,5 @@ export function addRover(map) {
     }
 
     status.textContent = 'Waiting for origin';
-    return { setOrigin, play };
+    return { setOrigin, play, getState, spliceRoute };
 }

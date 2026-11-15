@@ -72,6 +72,7 @@ export function addEnvironmentPanel(map) {
   const hour = document.getElementById('sol-hour');
   const hourLabel = document.getElementById('sol-hour-label');
   const playBtn = document.getElementById('play-time');
+  const speedBtn = document.getElementById('sim-speed');
   const status = document.getElementById('environment-status');
   const legend = document.querySelector('#environment-panel .risk-legend');
 
@@ -82,10 +83,28 @@ export function addEnvironmentPanel(map) {
 
   let pending = null;
   let debounceTimer = null;
-  let playTimer = null;
+  let playFrame = 0;
   let isPlaying = false;
+  let roverActive = false;
+  let simHourFloat = Number(hour.value) || 0;
+  let lastRenderedStep = -1;
+  let lastPlayNow = 0;
+  let simSpeedIdx = 0;
+  const SIM_SPEEDS = [1, 4, 10];
+  // 600 s simulados por segundo real en 1× (idéntico a rover.js: 10 min solares/s -> 1 h cada 6 s reales)
+  const BASE_SIM_SPEED = 600;
   let speMultiplier = 1.0;
   let autoSwitchedToRadiation = false;
+
+  if (speedBtn) {
+    speedBtn.addEventListener('click', () => {
+      simSpeedIdx = (simSpeedIdx + 1) % SIM_SPEEDS.length;
+      const mult = SIM_SPEEDS[simSpeedIdx];
+      speedBtn.textContent = `${mult}×`;
+      speedBtn.setAttribute('aria-pressed', String(mult > 1));
+      window.dispatchEvent(new CustomEvent('sim-speed-change', { detail: { multiplier: mult } }));
+    });
+  }
 
   function formatLmst(val) {
     const totalMinutes = Math.round((Number(val) * 60) / 5) * 5;
@@ -255,31 +274,87 @@ export function addEnvironmentPanel(map) {
     }
   }
 
+  function setPlayButtonState(playing) {
+    if (!playBtn) return;
+    playBtn.textContent = playing ? '⏸ Pause' : '▶ Play';
+    playBtn.setAttribute('aria-pressed', String(playing));
+  }
+
   function stopPlayback() {
     isPlaying = false;
-    clearTimeout(playTimer);
-    playTimer = null;
-    if (playBtn) {
-      playBtn.textContent = '▶ Play';
-      playBtn.setAttribute('aria-pressed', 'false');
+    cancelAnimationFrame(playFrame);
+    playFrame = 0;
+    setPlayButtonState(false);
+  }
+
+  function applyFiveMinStep(stepIdx, forceUpdate = false) {
+    const wrappedStep = ((stepIdx % 288) + 288) % 288;
+    const stepHour = wrappedStep / 12;
+    hour.value = String(stepHour);
+    hourLabel.textContent = formatLmst(stepHour);
+
+    if (forceUpdate || (wrappedStep !== lastRenderedStep && !pending)) {
+      lastRenderedStep = wrappedStep;
+      update();
     }
   }
 
-  async function tickPlayback() {
-    if (!isPlaying) return;
-    // Avanza en múltiplos exactos de 5 minutos (15 min por tick a alta velocidad)
-    const curFiveMinSteps = Math.round(Number(hour.value) * 12);
-    const nextFiveMinSteps = (curFiveMinSteps + 3) % 288;
-    hour.value = String(nextFiveMinSteps / 12);
-    hourLabel.textContent = formatLmst(hour.value);
-    await update();
-    if (isPlaying) {
-      playTimer = setTimeout(tickPlayback, 20);
-    }
+  function animateFreePlay(now) {
+    if (!isPlaying || roverActive) return;
+    const dt = (now - lastPlayNow) / 1000;
+    lastPlayNow = now;
+
+    const mult = SIM_SPEEDS[simSpeedIdx];
+    simHourFloat = (((simHourFloat + (dt * BASE_SIM_SPEED * mult) / 3600) % 24) + 24) % 24;
+    const stepIdx = Math.floor(simHourFloat * 12 + 1e-6) % 288;
+    applyFiveMinStep(stepIdx, false);
+
+    playFrame = requestAnimationFrame(animateFreePlay);
   }
+
+  window.addEventListener('rover-time-step', event => {
+    const { localHour, active, arrived } = event.detail ?? {};
+
+    if (active && Number.isFinite(localHour)) {
+      if (!roverActive) {
+        roverActive = true;
+        cancelAnimationFrame(playFrame);
+        playFrame = 0;
+        isPlaying = true;
+        setPlayButtonState(true);
+      }
+      simHourFloat = localHour;
+      const stepIdx = Math.floor(localHour * 12 + 1e-6) % 288;
+      applyFiveMinStep(stepIdx, false);
+      return;
+    }
+
+    if (arrived && Number.isFinite(localHour)) {
+      roverActive = false;
+      simHourFloat = localHour;
+      const arrivalStep = Math.round(localHour * 12) % 288;
+      applyFiveMinStep(arrivalStep, true);
+      stopPlayback();
+      return;
+    }
+
+    if (!active && roverActive) {
+      roverActive = false;
+      stopPlayback();
+    }
+  });
 
   if (playBtn) {
     playBtn.addEventListener('click', () => {
+      if (roverActive) {
+        isPlaying = !isPlaying;
+        setPlayButtonState(isPlaying);
+        window.dispatchEvent(new CustomEvent('sim-play-toggle', {
+          detail: { playing: isPlaying },
+        }));
+        return;
+      }
+
       if (isPlaying) {
         stopPlayback();
         return;
@@ -288,21 +363,24 @@ export function addEnvironmentPanel(map) {
         metric.value = 'temperature';
       }
       isPlaying = true;
-      playBtn.textContent = '⏸ Pause';
-      playBtn.setAttribute('aria-pressed', 'true');
-      tickPlayback();
+      simHourFloat = Number(hour.value) || 0;
+      lastPlayNow = performance.now();
+      setPlayButtonState(true);
+      playFrame = requestAnimationFrame(animateFreePlay);
     });
   }
 
   metric.addEventListener('change', () => {
     autoSwitchedToRadiation = false;
-    if (metric.value === 'off' && isPlaying) {
+    if (metric.value === 'off' && isPlaying && !roverActive) {
       stopPlayback();
     }
     update();
   });
   hour.addEventListener('input', () => {
-    if (isPlaying) stopPlayback();
+    if (isPlaying && !roverActive) stopPlayback();
+    simHourFloat = Number(hour.value) || 0;
+    lastRenderedStep = Math.round(simHourFloat * 12) % 288;
     hourLabel.textContent = formatLmst(hour.value);
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(update, 12);
