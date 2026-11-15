@@ -49,7 +49,7 @@ function readRoutePoints(data) {
 
     return geometry?.coordinates;
     }
-export function addRoutePlanner(map, extent, envHooks = {}) {
+export function addRoutePlanner(map, extent, rover, envHooks = {}) {
     const form = document.getElementById('route-form');
     const panel = document.getElementById('route-panel');
     const status = document.getElementById('route-status');
@@ -100,6 +100,7 @@ export function addRoutePlanner(map, extent, envHooks = {}) {
         submit.disabled = false;
         if (route) source.removeFeature(route);
         route = null;
+        rover.setOrigin(readPoint('origin'));
     }
 
     function readPoint(key) {
@@ -112,6 +113,9 @@ export function addRoutePlanner(map, extent, envHooks = {}) {
     function refreshMarker(key) {
         const point = readPoint(key);
         markers[key].setGeometry(point ? new Point(point) : undefined);
+        if (key === 'origin') {
+            rover.setOrigin(readPoint('origin'));
+        }
     }
 
     function setPicking(key) {
@@ -272,6 +276,7 @@ export function addRoutePlanner(map, extent, envHooks = {}) {
 
             route.setStyle(routeStyle);
             source.addFeature(route);
+            rover.play(data.full_coordinates);
 
             // Collapse the controls so the route is easier to see.
             panel.open = false;

@@ -100,7 +100,8 @@ elevationSource.on('imageloaderror', () => {
 addEnvironmentPanel(map, galeExtent);
 const storms = addStormOverlay(map);
 const solar = addSolarAlert();
-addRoutePlanner(map, galeExtent, {
+const rover = addRover(map);
+addRoutePlanner(map, galeExtent, rover, {
   getSolarState: solar.getSolarState,
   getCurrentStorm: storms.getCurrentStorm,
 });
@@ -157,8 +158,6 @@ if (import.meta.hot) {
     stormRequest?.abort();
   });
 }
-
-addRover(map, { demo: true });
 
 
 const missionLog = document.getElementById('mission-log');

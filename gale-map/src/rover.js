@@ -7,7 +7,7 @@ import Icon from 'ol/style/Icon.js';
 
 const UPDATE_MS = 2000;
 
-export function addRover(map, { demo = true } = {}) {
+export function addRover(map) {
     const status = document.getElementById('rover-status');
     const marker = new Feature();
 
@@ -44,111 +44,90 @@ export function addRover(map, { demo = true } = {}) {
     });
     map.addLayer(layer);
 
-    let timer;
-    let frame;
-    let request;
-    let stopped = false;
-    let lastTimestamp = -Infinity;
-    const demoStart = performance.now();
+    let frame = 0;
 
-    function moveTo(target) {
+    function place(position) {
+        const geometry = marker.getGeometry();
+        if (geometry) {
+            geometry.setCoordinates(position);
+        } else {
+            marker.setGeometry(new Point(position));
+        }
+    }
+
+    function setOrigin(position) {
         cancelAnimationFrame(frame);
-        const point = marker.getGeometry();
 
-        // Show the first known position immediately.
-        if (!point) {
-            marker.setGeometry(new Point(target));
+        if (!position) {
+            marker.setGeometry(undefined);
+            status.textContent = 'Waiting for origin';
             return;
         }
 
-        const start = point.getCoordinates();
-        const startedAt = performance.now();
+        place(position);
+        status.textContent = 'At origin';
+    }
+
+    function play(samples, speed = 1) {
+        cancelAnimationFrame(frame);
+
+        const valid = Array.isArray(samples) && samples.length >= 2 &&
+            samples.every((point, i) =>
+                Array.isArray(point) &&
+                Number.isFinite(point[0]) &&
+                Number.isFinite(point[1]) &&
+                Number.isFinite(point[3]) &&
+                point[3] >= 0 &&
+                (i === 0 || point[3] >= samples[i - 1][3])
+            );
+
+        if (!valid || !Number.isFinite(speed) || speed <= 0) {
+            status.textContent = 'Route timing unavailable';
+            return;
+        }
+
+        const start = performance.now();
+        const last = samples[samples.length - 1];
+        let segment = 0;
+        place(samples[0].slice(0, 2));
+        status.textContent = `Route playback · ${speed}×`;
 
         function animate(now) {
-            const t = Math.min(1, (now - startedAt) / UPDATE_MS);
-            point.setCoordinates([
-                start[0] + (target[0] - start[0]) * t,
-                start[1] + (target[1] - start[1]) * t,
+            const elapsed = (now - start) * speed / 1000;
+
+            if (elapsed >= last[3]) {
+                place(last.slice(0, 2));
+                status.textContent = 'Arrived at destination';
+                return;
+            }
+
+            // Advance past every waypoint already reached, including equal timestamps.
+            while (segment + 1 < samples.length && samples[segment + 1][3] <= elapsed) {
+                segment++;
+            }
+
+            const a = samples[segment];
+            const b = samples[segment + 1];
+            const fraction = elapsed <= a[3] ? 0 : (elapsed - a[3]) / (b[3] - a[3]);
+
+            place([
+                a[0] + fraction * (b[0] - a[0]),
+                a[1] + fraction * (b[1] - a[1]),
             ]);
-            if (t < 1) frame = requestAnimationFrame(animate);
+
+            frame = requestAnimationFrame(animate);
         }
 
         frame = requestAnimationFrame(animate);
     }
 
-    function demoPosition() {
-        // Accelerated preview inside the Gale map, near the demo storm.
-        const t = (performance.now() - demoStart) / 1000;
-        return {
-            position: [
-                137.38 + 0.035 * Math.sin(t / 12),
-                -4.65 + 0.012 * Math.sin(t / 6),
-            ],
-            timestamp: new Date().toISOString(),
-        };
-    }
-
-    async function poll() {
-        const startedAt = performance.now();
-        request = new AbortController();
-        const timeout = setTimeout(() => request.abort(), 5000);
-
-        try {
-            let sample;
-            if (demo) {
-                sample = demoPosition();
-            } else {
-                const response = await fetch('/api/rover', {
-                    signal: request.signal,
-                    cache: 'no-store',
-                });
-                if (!response.ok) throw new Error(`Rover API: ${response.status}`);
-                sample = await response.json();
-            }
-
-            if (stopped) return;
-            const position = sample?.position;
-            const timestamp = Date.parse(sample?.timestamp);
-            if (
-                !Array.isArray(position) || position.length !== 2 ||
-                !position.every(Number.isFinite) || !Number.isFinite(timestamp)
-            ) {
-                throw new Error('Invalid rover position');
-            }
-
-            if (timestamp > lastTimestamp) {
-                lastTimestamp = timestamp;
-                moveTo(position);
-                status.textContent = demo
-                    ? 'Rover · Simulated position'
-                    : `Rover · Position received ${sample.timestamp}`;
-            } else {
-                status.textContent = 'Rover · Waiting for a newer position';
-            }
-        } catch (error) {
-            if (stopped) return;
-            console.warn('Rover update unavailable', error);
-            status.textContent = marker.getGeometry()
-                ? 'Rover offline · Last known position'
-                : 'Rover offline · Position unavailable';
-        } finally {
-            clearTimeout(timeout);
-            if (!stopped) {
-                const elapsed = performance.now() - startedAt;
-                timer = setTimeout(poll, Math.max(250, UPDATE_MS - elapsed));
-            }
-        }
-    }
-
-    poll();
-
     if (import.meta.hot) {
         import.meta.hot.dispose(() => {
-            stopped = true;
-            clearTimeout(timer);
             cancelAnimationFrame(frame);
-            request?.abort();
             map.removeLayer(layer);
         });
     }
+
+    status.textContent = 'Waiting for origin';
+    return { setOrigin, play };
 }
