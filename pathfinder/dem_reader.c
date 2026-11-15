@@ -16,24 +16,25 @@
 #endif
 
 #define DEM_DATA_OFFSET_BYTES 642249ULL
+#define DEM_BIN_10M_SIZE_BYTES (3600ULL * 4010ULL * sizeof(float))
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
 bool dem_open(const char *filepath, DemContext *ctx) {
-    if (!ctx) return false;
+    if (!ctx || !filepath) return false;
 
     ctx->fd = -1;
     ctx->h_file = NULL;
     ctx->h_map = NULL;
     ctx->map_base = NULL;
     ctx->raster_data = NULL;
+    ctx->downsample = 1;
 
 #ifdef _WIN32
     HANDLE hFile = CreateFileA(filepath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
-        perror("dem_open: error abriendo archivo TIF en Windows");
         return false;
     }
     LARGE_INTEGER sz;
@@ -59,13 +60,11 @@ bool dem_open(const char *filepath, DemContext *ctx) {
 #else
     ctx->fd = open(filepath, O_RDONLY);
     if (ctx->fd < 0) {
-        perror("dem_open: error abriendo archivo TIF");
         return false;
     }
 
     struct stat st;
     if (fstat(ctx->fd, &st) < 0) {
-        perror("dem_open: fstat falló");
         close(ctx->fd);
         ctx->fd = -1;
         return false;
@@ -74,7 +73,6 @@ bool dem_open(const char *filepath, DemContext *ctx) {
 
     void *map = mmap(NULL, ctx->file_size, PROT_READ, MAP_SHARED, ctx->fd, 0);
     if (map == MAP_FAILED) {
-        perror("dem_open: mmap falló");
         close(ctx->fd);
         ctx->fd = -1;
         return false;
@@ -82,9 +80,20 @@ bool dem_open(const char *filepath, DemContext *ctx) {
     ctx->map_base = map;
 #endif
 
-    ctx->raster_data = (const float *)((const char *)ctx->map_base + DEM_DATA_OFFSET_BYTES);
+    if (ctx->file_size == DEM_BIN_10M_SIZE_BYTES) {
+        /* Rejilla binaria pre-submuestreada a 10 m/px (3600 x 4010 floats, sin cabecera TIFF) */
+        ctx->raster_data = (const float *)ctx->map_base;
+        ctx->downsample = 10;
+    } else if (ctx->file_size > DEM_DATA_OFFSET_BYTES) {
+        /* GeoTIFF original 1 m/px (36000 x 40100 floats) */
+        ctx->raster_data = (const float *)((const char *)ctx->map_base + DEM_DATA_OFFSET_BYTES);
+        ctx->downsample = 1;
+    } else {
+        dem_close(ctx);
+        return false;
+    }
 
-    /* Metadatos extraídos de la cabecera */
+    /* Metadatos del sistema de coordenadas de Gale Crater */
     ctx->width  = 36000;
     ctx->height = 40100;
     ctx->origin_lon = 137.12247113204074;
@@ -128,7 +137,11 @@ void dem_close(DemContext *ctx) {
 bool dem_get_elevation(const DemContext *ctx, int x, int y, float *out_z) {
     if (!dem_in_bounds(ctx, x, y)) return false;
 
-    size_t index = (size_t)y * ctx->width + (size_t)x;
+    int ds = (ctx->downsample > 1) ? ctx->downsample : 1;
+    size_t raw_w = ctx->width / (size_t)ds;
+    size_t bx = (size_t)(x / ds);
+    size_t by = (size_t)(y / ds);
+    size_t index = by * raw_w + bx;
     float z = ctx->raster_data[index];
 
     /* Comprobar nodata */
@@ -155,22 +168,22 @@ void dem_pixel_to_geo(const DemContext *ctx, int x, int y, double *out_lon_deg, 
 }
 
 bool dem_get_slope_deg(const DemContext *ctx, int x, int y, double *out_slope_deg) {
-    if (!dem_in_bounds(ctx, x - 1, y) || !dem_in_bounds(ctx, x + 1, y) ||
-        !dem_in_bounds(ctx, x, y - 1) || !dem_in_bounds(ctx, x, y + 1)) {
+    int d = (ctx->downsample > 1) ? ctx->downsample : 1;
+    if (!dem_in_bounds(ctx, x - d, y) || !dem_in_bounds(ctx, x + d, y) ||
+        !dem_in_bounds(ctx, x, y - d) || !dem_in_bounds(ctx, x, y + d)) {
         return false;
     }
 
     float z_w, z_e, z_n, z_s;
-    if (!dem_get_elevation(ctx, x - 1, y, &z_w) ||
-        !dem_get_elevation(ctx, x + 1, y, &z_e) ||
-        !dem_get_elevation(ctx, x, y - 1, &z_n) ||
-        !dem_get_elevation(ctx, x, y + 1, &z_s)) {
+    if (!dem_get_elevation(ctx, x - d, y, &z_w) ||
+        !dem_get_elevation(ctx, x + d, y, &z_e) ||
+        !dem_get_elevation(ctx, x, y - d, &z_n) ||
+        !dem_get_elevation(ctx, x, y + d, &z_s)) {
         return false;
     }
 
-    /* Cada píxel mide exactamente ~1.0 metro */
-    double dz_dx = (double)(z_e - z_w) / 2.0;
-    double dz_dy = (double)(z_s - z_n) / 2.0;
+    double dz_dx = (double)(z_e - z_w) / (2.0 * (double)d);
+    double dz_dy = (double)(z_s - z_n) / (2.0 * (double)d);
 
     double grad = sqrt(dz_dx * dz_dx + dz_dy * dz_dy);
     double slope_rad = atan(grad);
@@ -180,7 +193,8 @@ bool dem_get_slope_deg(const DemContext *ctx, int x, int y, double *out_slope_de
 }
 
 bool dem_get_roughness(const DemContext *ctx, int x, int y, double *out_roughness) {
-    if (!dem_in_bounds(ctx, x - 1, y - 1) || !dem_in_bounds(ctx, x + 1, y + 1)) {
+    int d = (ctx->downsample > 1) ? ctx->downsample : 1;
+    if (!dem_in_bounds(ctx, x - d, y - d) || !dem_in_bounds(ctx, x + d, y + d)) {
         if (out_roughness) *out_roughness = 0.0;
         return false;
     }
@@ -192,7 +206,7 @@ bool dem_get_roughness(const DemContext *ctx, int x, int y, double *out_roughnes
     for (int dy = -1; dy <= 1; dy++) {
         for (int dx = -1; dx <= 1; dx++) {
             float z;
-            if (dem_get_elevation(ctx, x + dx, y + dy, &z)) {
+            if (dem_get_elevation(ctx, x + dx * d, y + dy * d, &z)) {
                 vals[count++] = z;
                 sum += (double)z;
             }
@@ -212,8 +226,8 @@ bool dem_get_roughness(const DemContext *ctx, int x, int y, double *out_roughnes
     }
     double sigma_z = sqrt(var_sum / (double)count);
 
-    /* Normalizar con sigma_max = 0.50 m (rugosidad severa) */
-    double norm_rough = sigma_z / 0.50;
+    /* Normalizar con sigma_max escalado por resolución */
+    double norm_rough = sigma_z / (0.50 * (double)d);
     if (norm_rough > 1.0) norm_rough = 1.0;
 
     if (out_roughness) *out_roughness = norm_rough;

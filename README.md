@@ -11,23 +11,22 @@ Before starting, check that the following runtime assets are present:
 | Path relative to the repository root | Purpose |
 | --- | --- |
 | `pathfinder/martian_pathfinder.exe` | Windows route planner |
-| `Gale_DEM_SMG_1m.tif` | Gale Crater elevation model, approximately 5.4 GB |
+| `radiation_data/hirise_dem.bin` | Gale Crater elevation grid at $10\text{ m/px}$ ($55\text{ MB}$, **included in repo — works out of the box**) |
+| `Gale_DEM_SMG_1m.tif` *(optional)* | Full-resolution $1\text{ m/px}$ GeoTIFF ($5.4\text{ GB}$); if omitted, `hirise_dem.bin` is used automatically |
 | `radiation_data/mars_env.dll` | Native temperature and radiation model |
 | `radiation_data/` | Model inputs, including `hirise_dem.bin`, `hirise_meta.txt`, `gale_shielding_lut.bin`, and `rad_baseline_24h.bin` |
 | `gale-map/public/data/` | Basemap images, including `gale-terrain.png` and `gale-colour.png` |
 
-### Downloading `Gale_DEM_SMG_1m.tif` (5.4 GB — Excluded from GitHub)
+### Optional: Full-Resolution 1 m/px GeoTIFF (`5.4 GB`)
 
-Because GitHub enforces a strict file size limit, the 5.4 GB NASA/USGS HiRISE-CTX-HRSC merged Digital Elevation Model (`Gale_DEM_SMG_1m.tif`, $36\,000 \times 40\,100\text{ px}$ at $1\text{ m/px}$) is excluded via `.gitignore`. To install it:
+**You do NOT need to download the 5.4 GB `.tif` to run the application.** Both `server.py` and `martian_pathfinder.exe` automatically load `radiation_data/hirise_dem.bin` ($4\,010 \times 3\,600$ float32 elevation grid at $10\text{ m/px}$, $55\text{ MB}$), which is already included in this repository.
 
-1. **Download from the official USGS Astrogeology Science Center (NASA PDS):**
-   - **Direct GeoTIFF download (`5.4 GB`):** <https://astropedia.astrogeology.usgs.gov/download/Mars/MSL/Gale_otti_blend/Gale_DEM_SMG_1m.tif>
-   - Or via terminal (`curl`):
-     ```powershell
-     curl.exe -L -o Gale_DEM_SMG_1m.tif https://astropedia.astrogeology.usgs.gov/download/Mars/MSL/Gale_otti_blend/Gale_DEM_SMG_1m.tif
-     ```
-2. **Place the file** directly in the repository root (`speisaps/Gale_DEM_SMG_1m.tif`)
-3. *(Optional)* The precomputed $10\text{ m/px}$ downsampled binary grids (`radiation_data/hirise_dem.bin`, `gale_shielding_lut.bin`, and `rad_baseline_24h.bin`) are already included in `radiation_data/`. To regenerate them from scratch from the `.tif`, run `python radiation_data/prepare_rad_inputs.py`.
+If you want to install the full-resolution $1\text{ m/px}$ NASA/JPL HiRISE-CTX-HRSC merged GeoTIFF (`Gale_DEM_SMG_1m.tif`, `5.4 GB`, excluded from GitHub due to file size limits):
+
+1. **Download `Gale_DEM_SMG_1m.tif` from NASA Mars Trek:**
+   - **Direct GeoTIFF Mirror (`5.4 GB`):** <https://planetarymaps.usgs.gov/mosaic/Mars/MSL/MSL_Gale_DEM_Mosaic_1m_v3.tif>
+   - **NASA Mars Trek Portal:** <https://trek.nasa.gov/mars/> *(Data $\rightarrow$ Search `"Gale_DEM_SMG_1m"` / `"Gale Crater Merged DEM 1m"` $\rightarrow$ Download full GeoTIFF)*
+2. **Place the file** in the repository root as `Gale_DEM_SMG_1m.tif`. `server.py` will detect it automatically on startup.
 
 ## Start the application
 

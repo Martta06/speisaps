@@ -21,6 +21,7 @@ typedef struct {
     const float *raster_data;  /* Puntero mmap al array de elevaciones */
     size_t width;              /* 36000 */
     size_t height;             /* 40100 */
+    int    downsample;         /* 1 para TIF 1m/px (5.4 GB), 10 para hirise_dem.bin 10m/px (55 MB) */
     double origin_lon;         /* 137.12247113204074 */
     double origin_lat;         /* -4.248963057145466 */
     double pixel_scale_lon;    /* 1.687060485811425e-05 */

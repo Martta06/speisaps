@@ -138,7 +138,10 @@ int main(int argc, char **argv) {
     }
 
     DemContext ctx;
-    if (!dem_open(dem_file, &ctx) && !dem_open("../../geotiff/Gale_DEM_SMG_1m.tif", &ctx)) {
+    if (!dem_open(dem_file, &ctx) &&
+        !dem_open("../../geotiff/Gale_DEM_SMG_1m.tif", &ctx) &&
+        !dem_open("../radiation_data/hirise_dem.bin", &ctx) &&
+        !dem_open("radiation_data/hirise_dem.bin", &ctx)) {
         fprintf(stderr, "Error al abrir el DEM marciano.\n");
         return 1;
     }

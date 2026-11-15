@@ -31,8 +31,14 @@ if os.name == "nt" or not os.path.exists(PATHFINDER_BIN):
 DEM_FILE = os.path.join(BASE_DIR, "Gale_DEM_SMG_1m.tif")
 if not os.path.exists(DEM_FILE):
     alt_dem = os.path.join(BASE_DIR, "..", "geotiff", "Gale_DEM_SMG_1m.tif")
+    msl_dem = os.path.join(BASE_DIR, "MSL_Gale_DEM_Mosaic_1m_v3.tif")
+    bin_dem = os.path.join(BASE_DIR, "radiation_data", "hirise_dem.bin")
     if os.path.exists(alt_dem):
         DEM_FILE = os.path.abspath(alt_dem)
+    elif os.path.exists(msl_dem):
+        DEM_FILE = os.path.abspath(msl_dem)
+    elif os.path.exists(bin_dem):
+        DEM_FILE = os.path.abspath(bin_dem)
     else:
         DEM_FILE = os.path.join(BASE_DIR, "gale_dem_ligero.tif")
 
