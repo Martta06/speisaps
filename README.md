@@ -41,6 +41,7 @@ if (Test-Path .\requirements.txt) {
 **Terminal 2 — map**
 
 ```powershell
+$env:PATH = "C:\Program Files\nodejs;" + $env:PATH
 cd gale-map
 npm.cmd install
 npm.cmd run dev
