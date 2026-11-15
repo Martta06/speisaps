@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "dem_reader.h"
 #include "params.h"
 #include "pathfinder_astar.h"
@@ -14,6 +15,26 @@
 #include "radiation_bridge.h"
 
 int main(int argc, char **argv) {
+    if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
+        printf("============================================================\n");
+        printf("  Martian Pathfinder CLI — Cráter Gale (Speisaps)\n");
+        printf("============================================================\n");
+        printf("Sintaxis:\n");
+        printf("  %s <start_lon> <start_lat> <goal_lon> <goal_lat> [hora_lmst] [is_rover] [step_m] [out_geojson] [dem_tif]\n\n", argv[0]);
+        printf("Parámetros:\n");
+        printf("  1. start_lon:   Longitud origen en grados (ej. 137.350000)\n");
+        printf("  2. start_lat:   Latitud origen en grados (ej. -4.500000)\n");
+        printf("  3. goal_lon:    Longitud destino en grados (ej. 137.469662)\n");
+        printf("  4. goal_lat:    Latitud destino en grados (ej. -4.619293)\n");
+        printf("  5. hora_lmst:   Hora solar local marciana (0.0 a 24.0, por defecto 9.0)\n");
+        printf("  6. is_rover:    0 = EVA a pie (astronauta), 1 = Rover (por defecto 0)\n");
+        printf("  7. step_m:      Resolución: 10 (rápido, 0.2s-2s) o 1 (táctico 1m) (por defecto 10)\n");
+        printf("  8. out_geojson: Archivo de salida (por defecto route_output.geojson)\n");
+        printf("  9. dem_tif:     Ruta al DEM (por defecto ../Gale_DEM_SMG_1m.tif)\n");
+        printf("============================================================\n");
+        return 0;
+    }
+
     const char *dem_file = "../Gale_DEM_SMG_1m.tif";
     const char *out_geojson = "route_output.geojson";
 

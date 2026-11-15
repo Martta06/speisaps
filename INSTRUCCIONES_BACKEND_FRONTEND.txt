@@ -223,4 +223,56 @@ Ejemplo práctico de travesía EVA de 10 km:
 3. Tiempos de respuesta:
    Con stepMeters = 10, los cálculos toman entre 0.002s (rutas cortas) y 2.2s
    (travesías de 25 km), permitiendo interacción fluida en el navegador.
+
+--------------------------------------------------------------------------------
+6. GUÍA ESPECÍFICA PARA WINDOWS (POWERSHELL / CMD / WSL2)
+--------------------------------------------------------------------------------
+
+Para los desarrolladores que trabajan en Windows existen dos opciones de uso:
+
+OPCIÓN A: WINDOWS NATIVO (PowerShell o Símbolo del sistema)
+
+1. Requisitos previos:
+   - Node.js LTS (descargable desde https://nodejs.org/)
+   - Python 3.10+ (marcando la casilla "Add python.exe to PATH" al instalar)
+
+2. Ejecutable precompilado de Windows incluido:
+   El repositorio ya incluye el binario pathfinder/martian_pathfinder.exe
+   listo para usar en Windows x86_64. No es necesario compilar nada.
+   
+   Si en algún momento se desea recompilar tras modificar código en C:
+   - Disponer de MinGW-w64 o MSYS2 en el PATH.
+   - Ejecutar en pathfinder/: build_windows.bat
+
+3. Puesta en marcha del backend:
+   En la raíz del repositorio (PowerShell o CMD):
+     pip install flask
+     python server.py
+
+   server.py detecta automáticamente martian_pathfinder.exe en Windows.
+
+4. Puesta en marcha del frontend (gale-map):
+   En una segunda terminal de PowerShell:
+     cd gale-map
+     npm install
+     npm run dev
+
+   Vite abrirá la aplicación en http://localhost:5173. Cualquier llamada a /api
+   se redirige de manera transparente al servidor local en el puerto 8000.
+
+
+OPCIÓN B: WINDOWS CON WSL2 (Ubuntu en Windows)
+
+Si el entorno dispone de WSL2:
+1. Abrir la consola de WSL escribiendo 'wsl' en PowerShell.
+2. Instalar paquetes necesarios:
+     sudo apt update && sudo apt install -y build-essential python3 python3-flask nodejs npm
+3. Compilar el backend:
+     cd pathfinder && make martian_pathfinder && cd ..
+4. Arrancar el backend:
+     python3 server.py
+5. Arrancar el frontend:
+     cd gale-map && npm install && npm run dev
+6. Abrir en el navegador de Windows:
+     http://localhost:5173
 ================================================================================

@@ -4,7 +4,14 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef _OPENMP
 #include <omp.h>
+#else
+#include <time.h>
+static inline double omp_get_wtime(void) {
+    return (double)clock() / CLOCKS_PER_SEC;
+}
+#endif
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846

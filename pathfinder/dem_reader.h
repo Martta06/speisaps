@@ -14,6 +14,9 @@
 /* Metadatos extraídos de la cabecera BigTIFF de Gale_DEM_SMG_1m.tif */
 typedef struct {
     int fd;
+    void *h_file;              /* HANDLE en Windows */
+    void *h_map;               /* HANDLE FileMapping en Windows */
+    void *map_base;            /* Puntero base devuelto por mmap / MapViewOfFile */
     size_t file_size;
     const float *raster_data;  /* Puntero mmap al array de elevaciones */
     size_t width;              /* 36000 */

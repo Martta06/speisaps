@@ -7,10 +7,17 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+
+#ifdef _WIN32
+#include <windows.h>
+static void *s_lut_hfile = NULL;
+static void *s_lut_hmap = NULL;
+#else
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#endif
 
 static float *s_shielding_lut = NULL;
 static size_t s_lut_size_bytes = 0;
@@ -35,6 +42,32 @@ bool radiation_init(const char *lut_bin_path, const char *baseline_24h_path) {
     fclose(f_base);
 
     /* 2. Mapear en memoria gale_shielding_lut.bin (56 MB) */
+#ifdef _WIN32
+    HANDLE hFile = CreateFileA(lut_bin_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        perror("radiation_init: no se pudo abrir gale_shielding_lut.bin en Windows");
+        return false;
+    }
+    LARGE_INTEGER sz;
+    if (!GetFileSizeEx(hFile, &sz)) {
+        CloseHandle(hFile);
+        return false;
+    }
+    s_lut_size_bytes = (size_t)sz.QuadPart;
+    HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+    if (!hMap) {
+        CloseHandle(hFile);
+        return false;
+    }
+    void *map = MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
+    if (!map) {
+        CloseHandle(hMap);
+        CloseHandle(hFile);
+        return false;
+    }
+    s_lut_hfile = (void *)hFile;
+    s_lut_hmap = (void *)hMap;
+#else
     s_lut_fd = open(lut_bin_path, O_RDONLY);
     if (s_lut_fd < 0) {
         perror("radiation_init: no se pudo abrir gale_shielding_lut.bin");
@@ -57,6 +90,7 @@ bool radiation_init(const char *lut_bin_path, const char *baseline_24h_path) {
         s_lut_fd = -1;
         return false;
     }
+#endif
 
     s_shielding_lut = (float *)map;
     s_is_ready = true;
@@ -64,7 +98,21 @@ bool radiation_init(const char *lut_bin_path, const char *baseline_24h_path) {
 }
 
 void radiation_cleanup(void) {
-    if (s_shielding_lut && s_shielding_lut != MAP_FAILED) {
+#ifdef _WIN32
+    if (s_shielding_lut) {
+        UnmapViewOfFile(s_shielding_lut);
+        s_shielding_lut = NULL;
+    }
+    if (s_lut_hmap) {
+        CloseHandle((HANDLE)s_lut_hmap);
+        s_lut_hmap = NULL;
+    }
+    if (s_lut_hfile && s_lut_hfile != INVALID_HANDLE_VALUE) {
+        CloseHandle((HANDLE)s_lut_hfile);
+        s_lut_hfile = NULL;
+    }
+#else
+    if (s_shielding_lut) {
         munmap(s_shielding_lut, s_lut_size_bytes);
         s_shielding_lut = NULL;
     }
@@ -72,6 +120,7 @@ void radiation_cleanup(void) {
         close(s_lut_fd);
         s_lut_fd = -1;
     }
+#endif
     s_is_ready = false;
 }
 

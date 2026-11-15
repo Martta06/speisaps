@@ -3,12 +3,17 @@
  */
 
 #include "dem_reader.h"
+#include <stdio.h>
+#include <math.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <math.h>
-#include <stdio.h>
+#endif
 
 #define DEM_DATA_OFFSET_BYTES 642249ULL
 
@@ -19,6 +24,39 @@
 bool dem_open(const char *filepath, DemContext *ctx) {
     if (!ctx) return false;
 
+    ctx->fd = -1;
+    ctx->h_file = NULL;
+    ctx->h_map = NULL;
+    ctx->map_base = NULL;
+    ctx->raster_data = NULL;
+
+#ifdef _WIN32
+    HANDLE hFile = CreateFileA(filepath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        perror("dem_open: error abriendo archivo TIF en Windows");
+        return false;
+    }
+    LARGE_INTEGER sz;
+    if (!GetFileSizeEx(hFile, &sz)) {
+        CloseHandle(hFile);
+        return false;
+    }
+    ctx->file_size = (size_t)sz.QuadPart;
+    HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+    if (!hMap) {
+        CloseHandle(hFile);
+        return false;
+    }
+    void *map = MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
+    if (!map) {
+        CloseHandle(hMap);
+        CloseHandle(hFile);
+        return false;
+    }
+    ctx->h_file = (void *)hFile;
+    ctx->h_map = (void *)hMap;
+    ctx->map_base = map;
+#else
     ctx->fd = open(filepath, O_RDONLY);
     if (ctx->fd < 0) {
         perror("dem_open: error abriendo archivo TIF");
@@ -29,22 +67,22 @@ bool dem_open(const char *filepath, DemContext *ctx) {
     if (fstat(ctx->fd, &st) < 0) {
         perror("dem_open: fstat falló");
         close(ctx->fd);
+        ctx->fd = -1;
         return false;
     }
     ctx->file_size = (size_t)st.st_size;
 
-    /*
-     * Mapeamos el archivo en memoria virtual compartida de solo lectura.
-     * mmap mapea direcciones de página; pasamos offset 0 y sumamos DEM_DATA_OFFSET_BYTES.
-     */
     void *map = mmap(NULL, ctx->file_size, PROT_READ, MAP_SHARED, ctx->fd, 0);
     if (map == MAP_FAILED) {
         perror("dem_open: mmap falló");
         close(ctx->fd);
+        ctx->fd = -1;
         return false;
     }
+    ctx->map_base = map;
+#endif
 
-    ctx->raster_data = (const float *)((const char *)map + DEM_DATA_OFFSET_BYTES);
+    ctx->raster_data = (const float *)((const char *)ctx->map_base + DEM_DATA_OFFSET_BYTES);
 
     /* Metadatos extraídos de la cabecera */
     ctx->width  = 36000;
@@ -59,14 +97,32 @@ bool dem_open(const char *filepath, DemContext *ctx) {
 }
 
 void dem_close(DemContext *ctx) {
-    if (!ctx || ctx->fd < 0) return;
-    if (ctx->raster_data) {
-        void *map_start = (void *)((const char *)ctx->raster_data - DEM_DATA_OFFSET_BYTES);
-        munmap(map_start, ctx->file_size);
-        ctx->raster_data = NULL;
+    if (!ctx) return;
+
+#ifdef _WIN32
+    if (ctx->map_base) {
+        UnmapViewOfFile(ctx->map_base);
+        ctx->map_base = NULL;
     }
-    close(ctx->fd);
-    ctx->fd = -1;
+    if (ctx->h_map) {
+        CloseHandle((HANDLE)ctx->h_map);
+        ctx->h_map = NULL;
+    }
+    if (ctx->h_file && ctx->h_file != INVALID_HANDLE_VALUE) {
+        CloseHandle((HANDLE)ctx->h_file);
+        ctx->h_file = NULL;
+    }
+#else
+    if (ctx->map_base) {
+        munmap(ctx->map_base, ctx->file_size);
+        ctx->map_base = NULL;
+    }
+    if (ctx->fd >= 0) {
+        close(ctx->fd);
+        ctx->fd = -1;
+    }
+#endif
+    ctx->raster_data = NULL;
 }
 
 bool dem_get_elevation(const DemContext *ctx, int x, int y, float *out_z) {

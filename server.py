@@ -20,6 +20,9 @@ app = Flask(__name__)
 # Rutas base
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PATHFINDER_BIN = os.path.join(BASE_DIR, "pathfinder", "martian_pathfinder")
+if os.name == "nt" or not os.path.exists(PATHFINDER_BIN):
+    if os.path.exists(PATHFINDER_BIN + ".exe"):
+        PATHFINDER_BIN = PATHFINDER_BIN + ".exe"
 DEM_FILE = os.path.join(BASE_DIR, "Gale_DEM_SMG_1m.tif")
 if not os.path.exists(DEM_FILE):
     DEM_FILE = os.path.join(BASE_DIR, "gale_dem_ligero.tif")
@@ -82,6 +85,37 @@ def compute_route():
         tmp_geojson = tmp.name
 
     try:
+        if not os.path.exists(PATHFINDER_BIN):
+            # Fallback a ruta precalculada si el binario C aún no ha sido compilado
+            fallback_geojson = os.path.join(BASE_DIR, "pathfinder", "outputs", "route_10km_10m.geojson")
+            if os.path.exists(fallback_geojson):
+                print(f"[AVISO] Binario {PATHFINDER_BIN} no encontrado. Entregando ruta precalculada de demostración.")
+                with open(fallback_geojson, "r", encoding="utf-8") as f:
+                    gj = json.load(f)
+                features = gj.get("features", [])
+                props = features[0].get("properties", {}) if features else {}
+                full_coords = features[0].get("geometry", {}).get("coordinates", []) if features else []
+                coords_2d = [[c[0], c[1]] for c in full_coords]
+                return jsonify({
+                    "status": "ok",
+                    "mock": True,
+                    "notice": "Binario C no compilado. Ejecute build_windows.bat o make martian_pathfinder para cálculo dinámico en tiempo real.",
+                    "calculation_time_s": 0.01,
+                    "coordinates": coords_2d,
+                    "full_coordinates": full_coords,
+                    "properties": {
+                        **props,
+                        "calculation_time_s": 0.01,
+                        "is_rover": is_rover,
+                        "step_meters": step_meters,
+                    },
+                    "geojson": gj
+                })
+            return jsonify({
+                "error": f"Binario {PATHFINDER_BIN} no encontrado. Compile con build_windows.bat en Windows o make en Linux/WSL.",
+                "coordinates": []
+            }), 500
+
         cmd = [
             PATHFINDER_BIN,
             f"{lon_orig:.7f}", f"{lat_orig:.7f}",
