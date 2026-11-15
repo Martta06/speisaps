@@ -36,10 +36,10 @@ export function addSolarAlert() {
 
     function getSolarState() {
         if (phase === 'active') {
-            return { phase, speActive: true, speRate: 300.0, speMultiplier: 10.0, speOnset: 0.0 };
+            return { phase, speActive: true, speRate: 350.0, speMultiplier: 12.0, speOnset: 0.0 };
         }
         if (phase === 'forecast') {
-            return { phase, speActive: true, speRate: 150.0, speMultiplier: 5.0, speOnset: 600.0 };
+            return { phase, speActive: true, speRate: 180.0, speMultiplier: 6.0, speOnset: 120.0 };
         }
         return { phase: 'clear', speActive: false, speRate: 0.0, speMultiplier: 1.0, speOnset: 0.0 };
     }

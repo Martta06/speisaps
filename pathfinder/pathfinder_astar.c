@@ -146,6 +146,11 @@ bool astar_find_path(const DemContext              *ctx,
         /* Garantizar espacio suficiente (~1.5x radio) para rodear la tormenta sin salirse de la ventana */
         storm_margin_px = (int)ceil(env_local.storm_radius_m * 1.5);
     }
+    if (env_local.spe_active && env_local.spe_storm_rate_uSv_h > 0.0) {
+        /* Margen ampliado (~1.5 km) durante SPE para permitir buscar cañones, escarpes y depresiones */
+        int spe_margin_px = 1500;
+        if (spe_margin_px > storm_margin_px) storm_margin_px = spe_margin_px;
+    }
     int margin_px = (storm_margin_px > base_margin_px) ? storm_margin_px : base_margin_px;
     int min_x = (sx < gx ? sx : gx) - margin_px;
     int max_x = (sx > gx ? sx : gx) + margin_px;
@@ -191,6 +196,13 @@ bool astar_find_path(const DemContext              *ctx,
     /* Heurística admisible euclídea (distancia en metros multiplicada por peso base) */
     double h_start = hypot(gx - sx, gy - sy) * weights->w_dist;
     heap_push(open_set, sx, sy, h_start);
+
+    float z_start_val = -4500.0f, z_goal_val = -4500.0f;
+    dem_get_elevation(ctx, sx, sy, &z_start_val);
+    dem_get_elevation(ctx, gx, gy, &z_goal_val);
+    double route_dx = (double)(gx - sx);
+    double route_dy = (double)(gy - sy);
+    double route_len_sq = route_dx * route_dx + route_dy * route_dy;
 
     bool reached = false;
     HeapNode current;
@@ -241,6 +253,37 @@ bool astar_find_path(const DemContext              *ctx,
                 shielding,
                 spe_rate
             );
+            double effective_dose_for_cost = current_dose_rate;
+            if (spe_rate > 0.0f) {
+                /*
+                 * En tormenta solar (SPE), amplificamos el contraste de refugio topográfico:
+                 * 1) Obstrucción del horizonte en la LUT (1 - svf_eff): escarpes, paredes de cráter y cañones.
+                 * 2) Columna atmosférica / depresión local: cotas más bajas respecto a la línea A->B
+                 *    ofrecen refugio geométrico y mayor espesor de CO2 frente a crestas expuestas.
+                 */
+                double calm_dose = radiation_query_dose_rate_shielded(
+                    (float)sol_hour_arrival, nx, ny, shielding, 0.0f
+                );
+                double spe_delta = current_dose_rate - calm_dose;
+                double max_spe_delta = (double)spe_rate * (double)shielding * 24.0 / 1000.0;
+                double svf_eff = (max_spe_delta > 1e-6) ? (spe_delta / max_spe_delta) : 1.0;
+                double obstructed = (svf_eff < 1.0) ? (1.0 - svf_eff) : 0.0;
+
+                double t_proj = (route_len_sq > 1.0)
+                    ? (((double)(nx - sx) * route_dx + (double)(ny - sy) * route_dy) / route_len_sq)
+                    : 0.5;
+                if (t_proj < 0.0) t_proj = 0.0;
+                if (t_proj > 1.0) t_proj = 1.0;
+                double z_line = (double)z_start_val + t_proj * (double)(z_goal_val - z_start_val);
+                double dz_rel = (double)z_next - z_line;
+
+                double topo_exposure = exp(-55.0 * obstructed);
+                double elev_exposure = 1.0 + 0.06 * dz_rel;
+                if (elev_exposure < 0.20) elev_exposure = 0.20;
+                if (elev_exposure > 3.50) elev_exposure = 3.50;
+
+                effective_dose_for_cost = calm_dose + spe_delta * 4.5 * topo_exposure * elev_exposure;
+            }
 
             /* Calcular temperatura atmosférica con get_mars_temperature() de mars_env.c */
             MarsTemperature mt = get_mars_temperature(
@@ -311,7 +354,7 @@ bool astar_find_path(const DemContext              *ctx,
                 .slope_deg          = slope,
                 .roughness          = rough,
                 .elapsed_time_s     = tentative_t,
-                .dose_rate_msv_day  = current_dose_rate,
+                .dose_rate_msv_day  = effective_dose_for_cost,
                 .temp_c             = (double)mt.temp_c,
                 .speed_ms           = 1.0,
                 .dust_storm_penalty = storm_penalty

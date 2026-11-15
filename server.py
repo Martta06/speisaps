@@ -488,6 +488,10 @@ def environment_grid():
     if hour is None or not math.isfinite(hour) or not 0 <= hour < 24:
         return jsonify(error="localHour must be in [0, 24)."), 400
 
+    spe_mult = request.args.get("speMultiplier", default=1.0, type=float)
+    if spe_mult is None or not math.isfinite(spe_mult) or spe_mult < 1.0:
+        spe_mult = 1.0
+
     rows, columns = 205, 160
     extent = [
         GALE_EXTENT["west"], GALE_EXTENT["south"],
@@ -518,7 +522,7 @@ def environment_grid():
 
             _env_library.get_environment_grid_frontend(
                 *extent, rows, columns, hour,
-                1.0,  # Background radiation; no solar particle event.
+                spe_mult,
                 radiation, temperature,
             )
     except (OSError, AttributeError):

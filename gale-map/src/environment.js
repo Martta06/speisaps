@@ -26,6 +26,8 @@ export function addEnvironmentPanel(map) {
   map.addLayer(new VectorLayer({ source, zIndex: 5 }));
 
   let pending = null;
+  let speMultiplier = 1.0;
+  let autoSwitchedToRadiation = false;
 
   function drawGrid(grid, selectedMetric) {
     const { rows, columns, extent, values } = grid;
@@ -118,6 +120,7 @@ export function addEnvironmentPanel(map) {
       const params = new URLSearchParams({
         metric: selectedMetric,
         localHour: hour.value,
+        speMultiplier: String(speMultiplier),
       });
 
       const response = await fetch(`/api/environment?${params}`, {
@@ -140,7 +143,24 @@ export function addEnvironmentPanel(map) {
     }
   }
 
-  metric.addEventListener('change', update);
+  metric.addEventListener('change', () => {
+    autoSwitchedToRadiation = false;
+    update();
+  });
   hour.addEventListener('input', update);
+
+  window.addEventListener('solar-change', event => {
+    const phase = event.detail?.phase ?? 'clear';
+    speMultiplier = event.detail?.speMultiplier ?? 1.0;
+    if (phase !== 'clear' && metric.value === 'off') {
+      metric.value = 'radiation';
+      autoSwitchedToRadiation = true;
+    } else if (phase === 'clear' && autoSwitchedToRadiation) {
+      metric.value = 'off';
+      autoSwitchedToRadiation = false;
+    }
+    update();
+  });
+
   update();
 }
