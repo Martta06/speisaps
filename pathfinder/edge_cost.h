@@ -20,7 +20,7 @@
  *         w_dist
  *       + w_slope  × slope_cost(θ, θ_max)
  *       + w_rough  × roughness_cost(roughness)
- *       + w_rad    × radiation_cost_per_meter(dose, speed)
+ *       + w_rad    × radiation_cost_normalized(dose, speed)   (GCR + SPE)
  *       + w_temp   × temperature_stress_cost(temp, min_t, max_t)
  *   ]
  *   + elevation_cost(dz, w_up, w_down)

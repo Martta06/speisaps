@@ -50,6 +50,12 @@ double radiation_cost_per_meter(double dose_rate_msv_day, double speed_ms)
     return dose_rate_msv_s / speed_ms;
 }
 
+double radiation_cost_normalized(double dose_rate_msv_day, double speed_ms)
+{
+    if (speed_ms <= 0.0 || dose_rate_msv_day <= 0.0) return 0.0;
+    return (dose_rate_msv_day / RAD_REF_DOSE_RATE_MSV_DAY) * (1.0 / speed_ms);
+}
+
 /* ------------------------------------------------------------------ */
 
 double temperature_stress_cost(double temp_c, double min_temp_c, double max_temp_c)

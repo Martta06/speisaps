@@ -29,8 +29,51 @@ typedef struct {
     double max_roughness;       /* rugosidad máxima tolerable [0, 1]   */
     double min_temp_c;          /* temperatura mínima tolerable (°C)   */
     double max_temp_c;          /* temperatura máxima tolerable (°C)   */
-    bool   sep_alert_active;    /* alerta SEP global → bloqueo total   */
 } TraversalLimits;
+
+/* ------------------------------------------------------------------ */
+/* Estado ambiental dinámico: Tormenta Solar (SPE)                    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Tasa de dosis de referencia para normalizar el coste de radiación:
+ * GCR en superficie de Gale medida por MSL/RAD, 0.64 ± 0.12 mSv/día
+ * (Hassler et al., 2014, Science 343). Con esta referencia, un tramo en
+ * llanura abierta en calma tiene f_rad ≈ 1.
+ */
+#define RAD_REF_DOSE_RATE_MSV_DAY 0.64
+
+/* Factores de transmisión del vehículo (1.0 = sin blindaje adicional) */
+#define SHIELDING_FOOT_EVA 1.00
+#define SHIELDING_ROVER    0.85
+
+/*
+ * DynamicEnvironmentState — Estado del entorno que cambia en tiempo real
+ * y que A* consulta en cada arista.
+ *
+ * La hora marciana NO va aquí: A* ya recibe la hora de partida y calcula
+ * la hora de llegada a cada tramo (start_sol_hour + t_acumulado).
+ *
+ * La ventana [spe_onset_s, spe_end_s) se expresa en segundos desde la
+ * partida, igual que elapsed_time_s, para poder planificar con una SPE
+ * prevista (p. ej. alerta: "las partículas llegan en 40 min").
+ */
+typedef struct {
+    bool   spe_active;            /* true = hay SPE en curso o prevista      */
+    double spe_storm_rate_uSv_h;  /* tasa EXTRA a cielo abierto (uSv/h)      */
+    double spe_onset_s;           /* inicio del SPE (s desde partida), 0=ya  */
+    double spe_end_s;             /* fin del SPE (s desde partida), INFINITY */
+    double vehicle_shielding;     /* transmisión: 1.0 EVA, 0.85 rover        */
+} DynamicEnvironmentState;
+
+/* Estado en calma (sin SPE) con el blindaje correspondiente al modo */
+DynamicEnvironmentState env_state_calm(TraversalMode mode);
+
+/*
+ * Tasa SPE extra (uSv/h, cielo abierto, sin blindaje) vigente en el instante
+ * elapsed_s. Devuelve 0.0 si no hay SPE o si elapsed_s cae fuera de la ventana.
+ */
+double env_spe_rate_at(const DynamicEnvironmentState *env, double elapsed_s);
 
 /* ------------------------------------------------------------------ */
 /* Pesos de los factores de coste (modificables por el usuario)       */
@@ -56,7 +99,7 @@ typedef struct {
     double slope_deg;          /* pendiente media del segmento (°)           */
     double roughness;          /* micro-rugosidad calculada del DEM [0, 1]  */
     double elapsed_time_s;     /* segundos transcurridos desde inicio        */
-    double dose_rate_msv_day;  /* tasa de dosis GCR instantánea (mSv/día)    */
+    double dose_rate_msv_day;  /* tasa de dosis total GCR+SPE, ya blindada (mSv/día) */
     double temp_c;             /* temperatura atmosférica local (°C)         */
     double speed_ms;           /* velocidad nominal de traversal (m/s)       */
 } EdgeParams;

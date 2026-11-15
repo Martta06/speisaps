@@ -61,6 +61,24 @@ double elevation_cost(double dz_m, double w_up, double w_down);
 double radiation_cost_per_meter(double dose_rate_msv_day, double speed_ms);
 
 /*
+ * radiation_cost_normalized — Factor de coste de radiación adimensional.
+ *
+ * Dosis por metro de este tramo dividida por la dosis por metro de referencia
+ * (GCR a cielo abierto, RAD_REF_DOSE_RATE_MSV_DAY, a 1 m/s):
+ *
+ *   f_rad = (dose_rate / RAD_REF) × (1 m/s / speed)
+ *
+ *   ≈ 1.0   llanura abierta en calma (EVA)
+ *   ≈ 0.5   fondo de cañón en calma
+ *   ≈ 6.5   llanura abierta con SPE de +150 uSv/h
+ *
+ * A diferencia de radiation_cost_per_meter (mSv/m, ~1e-5), este valor está en
+ * la misma escala que los demás factores, así que w_rad tiene efecto real.
+ * No está acotado a [0, 1] a propósito: una SPE debe poder dominar el coste.
+ */
+double radiation_cost_normalized(double dose_rate_msv_day, double speed_ms);
+
+/*
  * temperature_stress_cost — Factor de estrés térmico normalizado [0, 1].
  *
  * temp_c:     Temperatura ambiente (°C) calculada con el modelo Parton-Logan.

@@ -7,18 +7,19 @@
 
 #include <math.h>
 
-/* Saturación de RA usada internamente (20 %) */
-#define RA_MAX_DEFAULT 0.20
-
 /* ------------------------------------------------------------------ */
 
+/*
+ * Nota sobre SPE: ya no hay un bloqueo global (INFINITY) cuando hay tormenta
+ * solar. La SPE entra a través de ep->dose_rate_msv_day (que A* calcula con la
+ * tasa SPE vigente en el instante de paso y el apantallamiento topográfico del
+ * píxel). Así, en lugar de "no hay ruta", A* devuelve la ruta que minimiza la
+ * dosis: prefiere cañones y pies de escarpe y evita llanuras expuestas.
+ */
 double edge_cost(const EdgeParams      *ep,
                  const CostWeights     *w,
                  const TraversalLimits *lim)
 {
-    /* ---- Hard blockers globales ----------------------------------- */
-    if (lim->sep_alert_active) return INFINITY;
-
     /* ---- Pendiente y Rugosidad ------------------------------------ */
     double f_slope = slope_cost(ep->slope_deg, lim->max_slope_deg);
     if (!isfinite(f_slope)) return INFINITY;
@@ -26,8 +27,8 @@ double edge_cost(const EdgeParams      *ep,
     if (ep->roughness > lim->max_roughness) return INFINITY;
     double f_rough = roughness_cost(ep->roughness);
 
-    /* ---- Radiación y Temperatura --------------------------------- */
-    double f_rad = radiation_cost_per_meter(ep->dose_rate_msv_day, ep->speed_ms);
+    /* ---- Radiación (GCR + SPE, normalizada) y Temperatura --------- */
+    double f_rad = radiation_cost_normalized(ep->dose_rate_msv_day, ep->speed_ms);
 
     double f_temp = temperature_stress_cost(ep->temp_c, lim->min_temp_c, lim->max_temp_c);
     if (!isfinite(f_temp)) return INFINITY;
@@ -56,15 +57,13 @@ double edge_cost_breakdown(const EdgeParams      *ep,
 {
     for (int i = 0; i < COST_TERM_COUNT; i++) out_terms[i] = 0.0;
 
-    if (lim->sep_alert_active) return INFINITY;
-
     double f_slope = slope_cost(ep->slope_deg, lim->max_slope_deg);
     if (!isfinite(f_slope)) return INFINITY;
 
     if (ep->roughness > lim->max_roughness) return INFINITY;
     double f_rough = roughness_cost(ep->roughness);
 
-    double f_rad = radiation_cost_per_meter(ep->dose_rate_msv_day, ep->speed_ms);
+    double f_rad = radiation_cost_normalized(ep->dose_rate_msv_day, ep->speed_ms);
     double f_temp = temperature_stress_cost(ep->temp_c, lim->min_temp_c, lim->max_temp_c);
     if (!isfinite(f_temp)) return INFINITY;
 

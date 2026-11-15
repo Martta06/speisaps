@@ -26,6 +26,8 @@ typedef struct {
     double max_slope_deg;
     double cumulative_elevation_gain_m;
     double total_radiation_dose_msv;
+    double peak_dose_rate_msv_day;  /* tasa máxima encontrada en la ruta */
+    bool   spe_active;              /* la ruta se calculó con SPE activa/prevista */
     double min_temp_c;
     double max_temp_c;
 } PathResult;

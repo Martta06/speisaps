@@ -107,6 +107,37 @@ static void test_terrain_cost(void)
     /* radiation_cost_per_meter */
     double r = radiation_cost_per_meter(0.64, 1.0);
     check("rad 0.64 mSv/día a 1 m/s", approx(r, 0.64 / 86400.0, 1e-12));
+
+    /* radiation_cost_normalized: referencia GCR → 1.0; doble tasa → 2.0 */
+    check("rad normalizada GCR ref → 1.0",  approx(radiation_cost_normalized(0.64, 1.0), 1.0, 1e-9));
+    check("rad normalizada 2x ref → 2.0",   approx(radiation_cost_normalized(1.28, 1.0), 2.0, 1e-9));
+    check("rad normalizada mitad vel → 2x", approx(radiation_cost_normalized(0.64, 0.5), 2.0, 1e-9));
+}
+
+/* ================================================================== */
+
+static void test_env_state(void)
+{
+    puts("\n--- DynamicEnvironmentState (SPE) ---");
+
+    DynamicEnvironmentState eva   = env_state_calm(MODE_FOOT_EVA);
+    DynamicEnvironmentState rover = env_state_calm(MODE_ROVER);
+    check("calma: sin SPE",                 !eva.spe_active);
+    check("calma: tasa SPE = 0",            approx(env_spe_rate_at(&eva, 100.0), 0.0, 1e-12));
+    check("blindaje EVA = 1.0",             approx(eva.vehicle_shielding, 1.0, 1e-12));
+    check("blindaje rover = 0.85",          approx(rover.vehicle_shielding, 0.85, 1e-12));
+    check("NULL → tasa SPE = 0",            approx(env_spe_rate_at(NULL, 0.0), 0.0, 1e-12));
+
+    /* SPE prevista: llega a los 600 s y dura hasta los 3600 s */
+    DynamicEnvironmentState spe = eva;
+    spe.spe_active = true;
+    spe.spe_storm_rate_uSv_h = 150.0;
+    spe.spe_onset_s = 600.0;
+    spe.spe_end_s = 3600.0;
+    check("SPE antes del onset → 0",        approx(env_spe_rate_at(&spe,  599.0),   0.0, 1e-12));
+    check("SPE en el onset → 150",          approx(env_spe_rate_at(&spe,  600.0), 150.0, 1e-12));
+    check("SPE dentro de ventana → 150",    approx(env_spe_rate_at(&spe, 2000.0), 150.0, 1e-12));
+    check("SPE en el fin → 0",              approx(env_spe_rate_at(&spe, 3600.0),   0.0, 1e-12));
 }
 
 /* ================================================================== */
@@ -150,10 +181,14 @@ static void test_edge_cost(void)
     check("temperatura < min_temp → INF", !isfinite(edge_cost(&ep, &w, &lim)));
     ep.temp_c = -10.0;
 
-    /* SEP activo → INFINITY */
-    lim.sep_alert_active = true;
-    check("SEP activo → INF", !isfinite(edge_cost(&ep, &w, &lim)));
-    lim.sep_alert_active = false;
+    /* SPE: ya NO bloquea; encarece el tramo en proporción a la tasa de dosis */
+    double cost_calm = edge_cost(&ep, &w, &lim);
+    ep.dose_rate_msv_day = 0.64 + 150.0 * 24.0 / 1000.0; /* GCR + SPE 150 uSv/h */
+    double cost_spe = edge_cost(&ep, &w, &lim);
+    check("SPE no bloquea (coste finito)", isfinite(cost_spe));
+    check("SPE encarece el tramo",         cost_spe > cost_calm);
+    printf("    coste calma = %.3f | coste SPE(150 uSv/h) = %.3f\n", cost_calm, cost_spe);
+    ep.dose_rate_msv_day = 0.64;
 
     /* Desglose de términos */
     double terms[COST_TERM_COUNT];
@@ -162,10 +197,10 @@ static void test_edge_cost(void)
     printf("    desglose: dist=%.3f slope=%.3f rough=%.3f rad=%.3f temp=%.3f elev=%.3f\n",
            terms[0], terms[1], terms[2], terms[3], terms[4], terms[5]);
 
-    /* Rover: w_rad = 0 → la radiación no contribuye */
+    /* Rover: la radiación cuenta, pero menos que en EVA */
     CostWeights wr = weights_default_rover();
-    check("rover w_rad=0 → no contribución rad",
-          approx(wr.w_rad, 0.0, 1e-9));
+    check("rover 0 < w_rad < w_rad EVA",
+          wr.w_rad > 0.0 && wr.w_rad < w.w_rad);
 
     /* Coste de subida > coste de bajada con mismos pesos */
     ep.delta_z_m = +10.0;
@@ -205,6 +240,10 @@ static void test_radiation_model(void)
     double rate_sep = radiation_query_dose_rate_msv_day(12.0f, px, py, false, 100.0f);
     check("tormenta solar (SEP) incrementa dosis", rate_sep > rate_open);
 
+    /* 4b. Versión con blindaje explícito coincide con la versión bool */
+    double rate_sh = radiation_query_dose_rate_shielded(12.0f, px, py, 0.85f, 0.0f);
+    check("shielded(0.85) == bool rover", approx(rate_sh, rate_rover, 1e-9));
+
     /* 5. Comprobación de get_mars_temperature() de mars_env.c */
     MarsTemperature mt_noon = get_mars_temperature(14.5f, -4500.0f, 190.0f, 280.0f, -4500.0f);
     check("temp mediodía en Gale aprox +6.8°C", approx(mt_noon.temp_c, 6.85, 0.5));
@@ -214,7 +253,8 @@ static void test_radiation_model(void)
 
     /* 6. Comprobación con DEM real */
     DemContext ctx;
-    if (dem_open("../Gale_DEM_SMG_1m.tif", &ctx)) {
+    if (dem_open("../Gale_DEM_SMG_1m.tif", &ctx) ||
+        dem_open("../../geotiff/Gale_DEM_SMG_1m.tif", &ctx)) {
         double rough_plain = 0.0;
         dem_geo_to_pixel(&ctx, 137.425, -4.580, &px, &py);
         bool ok_r = dem_get_roughness(&ctx, px, py, &rough_plain);
@@ -226,8 +266,9 @@ static void test_radiation_model(void)
         CostWeights weights = weights_default_foot_eva();
         PathResult p_morning, p_evening;
 
-        bool ok_m = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 7.0, 1, &weights, &limits, &p_morning);
-        bool ok_e = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 13.0, 1, &weights, &limits, &p_evening);
+        DynamicEnvironmentState env = env_state_calm(MODE_FOOT_EVA);
+        bool ok_m = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 7.0, 1, &weights, &limits, &env, &p_morning);
+        bool ok_e = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 13.0, 1, &weights, &limits, &env, &p_evening);
 
         check("A* espacio-temporal ejecutado a las 07:00", ok_m);
         check("A* espacio-temporal ejecutado a las 13:00", ok_e);
@@ -238,6 +279,24 @@ static void test_radiation_model(void)
             check("Dosis acumulada positiva y consistente", p_morning.total_radiation_dose_msv > 0.0);
             free_path_result(&p_morning);
             free_path_result(&p_evening);
+        }
+
+        /* 7. SPE en A*: la ruta existe (no se bloquea) y acumula más dosis */
+        DynamicEnvironmentState env_spe = env;
+        env_spe.spe_active = true;
+        env_spe.spe_storm_rate_uSv_h = 150.0;
+        PathResult p_calm, p_spe;
+        bool ok_c = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 9.0, 1, &weights, &limits, &env,     &p_calm);
+        bool ok_s = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 9.0, 1, &weights, &limits, &env_spe, &p_spe);
+        check("A* con SPE encuentra ruta (no bloqueo global)", ok_s);
+        if (ok_c && ok_s) {
+            check("dosis con SPE > dosis en calma",
+                  p_spe.total_radiation_dose_msv > p_calm.total_radiation_dose_msv);
+            check("PathResult marca spe_active", p_spe.spe_active && !p_calm.spe_active);
+            printf("    dosis calma = %.6f mSv | dosis SPE = %.6f mSv\n",
+                   p_calm.total_radiation_dose_msv, p_spe.total_radiation_dose_msv);
+            free_path_result(&p_calm);
+            free_path_result(&p_spe);
         }
 
         dem_close(&ctx);
@@ -256,6 +315,7 @@ int main(void)
 
     test_mars_geo();
     test_terrain_cost();
+    test_env_state();
     test_edge_cost();
     test_radiation_model();
 

@@ -103,19 +103,25 @@ static inline double traversal_time_step(double dist_m, double slope_deg, double
     return (dist_m / v_nom_ms) * factor;
 }
 
-bool astar_find_path(const DemContext       *ctx,
-                     double                  start_lon,
-                     double                  start_lat,
-                     double                  goal_lon,
-                     double                  goal_lat,
-                     double                  start_sol_hour,
-                     int                     step_meters,
-                     const CostWeights      *weights,
-                     const TraversalLimits  *limits,
-                     PathResult             *out_path)
+bool astar_find_path(const DemContext              *ctx,
+                     double                         start_lon,
+                     double                         start_lat,
+                     double                         goal_lon,
+                     double                         goal_lat,
+                     double                         start_sol_hour,
+                     int                            step_meters,
+                     const CostWeights             *weights,
+                     const TraversalLimits         *limits,
+                     const DynamicEnvironmentState *env,
+                     PathResult                    *out_path)
 {
     if (!ctx || !weights || !limits || !out_path) return false;
     if (step_meters < 1) step_meters = 1;
+
+    /* Sin estado dinámico: calma y sin blindaje (conservador) */
+    DynamicEnvironmentState env_local = env_state_calm(MODE_FOOT_EVA);
+    if (env) env_local = *env;
+    const float shielding = (float)env_local.vehicle_shielding;
 
     int sx, sy, gx, gy;
     dem_geo_to_pixel(ctx, start_lon, start_lat, &sx, &sy);
@@ -219,13 +225,15 @@ bool astar_find_path(const DemContext       *ctx,
 
             /* Hora solar local estimada al atravesar este tramo */
             double sol_hour_arrival = start_sol_hour + (tentative_t / 3600.0);
-            float sep_storm_val = limits->sep_alert_active ? 500.0f : 0.0f;
-            double current_dose_rate = radiation_query_dose_rate_msv_day(
+
+            /* Tasa SPE vigente en el instante de paso (0 si fuera de la ventana) */
+            float spe_rate = (float)env_spe_rate_at(&env_local, tentative_t);
+            double current_dose_rate = radiation_query_dose_rate_shielded(
                 (float)sol_hour_arrival,
                 nx,
                 ny,
-                weights->w_rad == 0.0, /* es rover si w_rad == 0 */
-                sep_storm_val
+                shielding,
+                spe_rate
             );
 
             /* Calcular temperatura atmosférica con get_mars_temperature() de mars_env.c */
@@ -301,6 +309,8 @@ bool astar_find_path(const DemContext       *ctx,
     out_path->max_slope_deg = 0.0;
     out_path->cumulative_elevation_gain_m = 0.0;
     out_path->total_radiation_dose_msv = 0.0;
+    out_path->peak_dose_rate_msv_day = 0.0;
+    out_path->spe_active = env_local.spe_active && env_local.spe_storm_rate_uSv_h > 0.0;
     out_path->min_temp_c = 100.0;
     out_path->max_temp_c = -273.15;
 
@@ -313,13 +323,13 @@ bool astar_find_path(const DemContext       *ctx,
         dem_get_elevation(ctx, cx, cy, &z);
         double t_arr = time_score[CELL_IDX(cx, cy)];
         double cur_h = start_sol_hour + (t_arr / 3600.0);
-        float sep_val = limits->sep_alert_active ? 500.0f : 0.0f;
-        double cur_rate = radiation_query_dose_rate_msv_day(
+        float spe_val = (float)env_spe_rate_at(&env_local, t_arr);
+        double cur_rate = radiation_query_dose_rate_shielded(
             (float)cur_h,
             cx,
             cy,
-            weights->w_rad == 0.0,
-            sep_val
+            shielding,
+            spe_val
         );
         MarsTemperature mt_step = get_mars_temperature(
             (float)cur_h,
@@ -369,6 +379,9 @@ bool astar_find_path(const DemContext       *ctx,
         double dt_segment = out_path->points[i].elapsed_time_s - out_path->points[i - 1].elapsed_time_s;
         double seg_rate = out_path->points[i].dose_rate_msv_day;
         out_path->total_radiation_dose_msv += seg_rate * (dt_segment / 86400.0);
+        if (seg_rate > out_path->peak_dose_rate_msv_day) {
+            out_path->peak_dose_rate_msv_day = seg_rate;
+        }
     }
 
     heap_free(open_set);

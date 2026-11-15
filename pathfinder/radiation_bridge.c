@@ -134,9 +134,29 @@ double radiation_query_dose_rate_msv_day(float t_lmst,
                                          bool is_rover,
                                          float sep_storm_uSv_h)
 {
+    /* Rover shielding: ~0.85 para rover Curiosity, 1.0 para EVA a pie */
+    float rover_shield = is_rover ? 0.85f : 1.0f;
+    return radiation_query_dose_rate_shielded(t_lmst, dem_pixel_x, dem_pixel_y,
+                                              rover_shield, sep_storm_uSv_h);
+}
+
+double radiation_query_dose_rate_shielded(float t_lmst,
+                                          int dem_pixel_x,
+                                          int dem_pixel_y,
+                                          float vehicle_shielding,
+                                          float spe_storm_uSv_h)
+{
+    if (vehicle_shielding <= 0.0f) vehicle_shielding = 1.0f;
+    if (spe_storm_uSv_h < 0.0f)    spe_storm_uSv_h = 0.0f;
+
     if (!s_is_ready) {
-        /* Fallback de seguridad: ~0.65 mSv/día */
-        return 0.65;
+        /*
+         * Fallback sin LUT: GCR nominal (~27 uSv/h ≈ 0.65 mSv/día) a cielo
+         * abierto + SPE completa (sin apantallamiento topográfico conocido,
+         * asumimos lo peor).
+         */
+        double open_sky_uSv_h = 27.0 + (double)spe_storm_uSv_h;
+        return open_sky_uSv_h * (double)vehicle_shielding * 24.0 / 1000.0;
     }
 
     /*
@@ -146,9 +166,6 @@ double radiation_query_dose_rate_msv_day(float t_lmst,
      */
     int col = dem_pixel_x / 10;
     int row = dem_pixel_y / 10;
-
-    /* Rover shielding: ~0.85 para rover Curiosity, 1.0 para EVA a pie */
-    float rover_shield = is_rover ? 0.85f : 1.0f;
 
     /*
      * Llamada a get_radiation_dose_rate() de mars_env.c:
@@ -162,8 +179,8 @@ double radiation_query_dose_rate_msv_day(float t_lmst,
         RAD_LUT_COLS,
         s_baseline_24h,
         s_shielding_lut,
-        rover_shield,
-        sep_storm_uSv_h
+        vehicle_shielding,
+        spe_storm_uSv_h
     );
 
     /* Convertir uSv/h -> mSv/día: rate * 24.0 / 1000.0 */

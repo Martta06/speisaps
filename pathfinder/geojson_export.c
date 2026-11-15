@@ -27,6 +27,8 @@ int export_path_to_geojson_string(const PathResult *path, char *buffer, size_t m
         "        \"max_slope_deg\": %.2f,\n"
         "        \"cumulative_elevation_gain_m\": %.2f,\n"
         "        \"total_radiation_dose_msv\": %.6f,\n"
+        "        \"peak_dose_rate_msv_day\": %.4f,\n"
+        "        \"spe_active\": %s,\n"
         "        \"min_temp_c\": %.2f,\n"
         "        \"max_temp_c\": %.2f,\n"
         "        \"waypoints_count\": %zu\n"
@@ -40,6 +42,8 @@ int export_path_to_geojson_string(const PathResult *path, char *buffer, size_t m
         path->max_slope_deg,
         path->cumulative_elevation_gain_m,
         path->total_radiation_dose_msv,
+        path->peak_dose_rate_msv_day,
+        path->spe_active ? "true" : "false",
         path->min_temp_c,
         path->max_temp_c,
         path->count
@@ -99,6 +103,8 @@ bool export_path_to_geojson_file(const char *filename, const PathResult *path) {
         "        \"max_slope_deg\": %.2f,\n"
         "        \"cumulative_elevation_gain_m\": %.2f,\n"
         "        \"total_radiation_dose_msv\": %.6f,\n"
+        "        \"peak_dose_rate_msv_day\": %.4f,\n"
+        "        \"spe_active\": %s,\n"
         "        \"min_temp_c\": %.2f,\n"
         "        \"max_temp_c\": %.2f,\n"
         "        \"waypoints_count\": %zu\n"
@@ -112,6 +118,8 @@ bool export_path_to_geojson_file(const char *filename, const PathResult *path) {
         path->max_slope_deg,
         path->cumulative_elevation_gain_m,
         path->total_radiation_dose_msv,
+        path->peak_dose_rate_msv_day,
+        path->spe_active ? "true" : "false",
         path->min_temp_c,
         path->max_temp_c,
         path->count

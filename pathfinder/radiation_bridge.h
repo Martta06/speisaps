@@ -42,4 +42,18 @@ double radiation_query_dose_rate_msv_day(float t_lmst,
                                          bool is_rover,
                                          float sep_storm_uSv_h);
 
+/*
+ * radiation_query_dose_rate_shielded — Igual que la anterior, pero con el
+ * factor de transmisión del vehículo explícito (1.0 EVA, 0.85 rover...).
+ * Es la que usa A* (el valor sale de DynamicEnvironmentState.vehicle_shielding).
+ *
+ * La tasa devuelta es la TOTAL que recibe el tripulante:
+ *   [GCR(t) × topo + SPE × SVF_eff] × vehicle_shielding     (mSv/día)
+ */
+double radiation_query_dose_rate_shielded(float t_lmst,
+                                          int dem_pixel_x,
+                                          int dem_pixel_y,
+                                          float vehicle_shielding,
+                                          float spe_storm_uSv_h);
+
 #endif /* RADIATION_BRIDGE_H */

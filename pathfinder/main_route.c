@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "dem_reader.h"
 #include "params.h"
 #include "pathfinder_astar.h"
@@ -20,7 +21,7 @@ int main(int argc, char **argv) {
         printf("  Martian Pathfinder CLI — Cráter Gale (Speisaps)\n");
         printf("============================================================\n");
         printf("Sintaxis:\n");
-        printf("  %s <start_lon> <start_lat> <goal_lon> <goal_lat> [hora_lmst] [is_rover] [step_m] [out_geojson] [dem_tif]\n\n", argv[0]);
+        printf("  %s <start_lon> <start_lat> <goal_lon> <goal_lat> [hora_lmst] [is_rover] [step_m] [out_geojson] [dem_tif] [--spe <uSv/h>] [--spe-onset <s>] [--spe-end <s>] [--shield <f>]\n\n", argv[0]);
         printf("Parámetros:\n");
         printf("  1. start_lon:   Longitud origen en grados (ej. 137.350000)\n");
         printf("  2. start_lat:   Latitud origen en grados (ej. -4.500000)\n");
@@ -31,6 +32,10 @@ int main(int argc, char **argv) {
         printf("  7. step_m:      Resolución: 10 (rápido, 0.2s-2s) o 1 (táctico 1m) (por defecto 10)\n");
         printf("  8. out_geojson: Archivo de salida (por defecto route_output.geojson)\n");
         printf("  9. dem_tif:     Ruta al DEM (por defecto ../Gale_DEM_SMG_1m.tif)\n");
+        printf("  --spe <uSv/h>:  Activa tormenta solar SPE extra a cielo abierto (ej. 150.0)\n");
+        printf("  --spe-onset <s>: Segundos desde partida de inicio del SPE (defecto 0)\n");
+        printf("  --spe-end <s>:   Segundos desde partida de fin del SPE (defecto infinito)\n");
+        printf("  --shield <f>:    Factor de transmisión del vehículo (1.0 EVA, 0.85 Rover)\n");
         printf("============================================================\n");
         return 0;
     }
@@ -47,27 +52,45 @@ int main(int argc, char **argv) {
     int is_rover = 0;            /* 0 = EVA a pie, 1 = Rover */
     int step_meters = 10;        /* 10 m por defecto para alta velocidad, 1 m para táctico */
 
-    if (argc >= 5) {
-        start_lon = atof(argv[1]);
-        start_lat = atof(argv[2]);
-        goal_lon  = atof(argv[3]);
-        goal_lat  = atof(argv[4]);
+    double spe_rate = 0.0, spe_onset = 0.0, spe_end = INFINITY, shield_override = -1.0;
+
+    /* Separar flags --xxx de los argumentos posicionales */
+    const char *pos[16];
+    int npos = 0;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--spe") == 0 && i + 1 < argc) {
+            spe_rate = atof(argv[++i]);
+        } else if (strcmp(argv[i], "--spe-onset") == 0 && i + 1 < argc) {
+            spe_onset = atof(argv[++i]);
+        } else if (strcmp(argv[i], "--spe-end") == 0 && i + 1 < argc) {
+            spe_end = atof(argv[++i]);
+        } else if (strcmp(argv[i], "--shield") == 0 && i + 1 < argc) {
+            shield_override = atof(argv[++i]);
+        } else if (npos < 16) {
+            pos[npos++] = argv[i];
+        }
     }
-    if (argc >= 6) {
-        start_sol_hour = atof(argv[5]);
+
+    if (npos >= 4) {
+        start_lon = atof(pos[0]);
+        start_lat = atof(pos[1]);
+        goal_lon  = atof(pos[2]);
+        goal_lat  = atof(pos[3]);
     }
-    if (argc >= 7) {
-        is_rover = atoi(argv[6]);
+    if (npos >= 5) start_sol_hour = atof(pos[4]);
+    if (npos >= 6) is_rover = atoi(pos[5]);
+    if (npos >= 7) step_meters = atoi(pos[6]);
+    if (npos >= 8) out_geojson = pos[7];
+    if (npos >= 9) dem_file = pos[8];
+
+    DynamicEnvironmentState env = env_state_calm(is_rover ? MODE_ROVER : MODE_FOOT_EVA);
+    if (spe_rate > 0.0) {
+        env.spe_active = true;
+        env.spe_storm_rate_uSv_h = spe_rate;
+        env.spe_onset_s = spe_onset;
+        env.spe_end_s = spe_end;
     }
-    if (argc >= 8) {
-        step_meters = atoi(argv[7]);
-    }
-    if (argc >= 9) {
-        out_geojson = argv[8];
-    }
-    if (argc >= 10) {
-        dem_file = argv[9];
-    }
+    if (shield_override > 0.0) env.vehicle_shielding = shield_override;
 
     printf("Iniciando Martian Pathfinder (Gale Crater)...\n");
     printf("DEM: %s\n", dem_file);
@@ -76,9 +99,18 @@ int main(int argc, char **argv) {
     printf("Origen:        Lon=%.6f, Lat=%.6f\n", start_lon, start_lat);
     printf("Destino:       Lon=%.6f, Lat=%.6f\n", goal_lon,  goal_lat);
     printf("Hora partida:  %.2f LMST (Sol hour)\n", start_sol_hour);
+    printf("Blindaje veh.: x%.2f\n", env.vehicle_shielding);
+    if (env.spe_active) {
+        printf("TORMENTA SOLAR (SPE): +%.1f uSv/h a cielo abierto, desde t=%.0f s ",
+               env.spe_storm_rate_uSv_h, env.spe_onset_s);
+        if (isfinite(env.spe_end_s)) printf("hasta t=%.0f s\n", env.spe_end_s);
+        else                         printf("(sin fin previsto)\n");
+    } else {
+        printf("SPE:           inactiva (solo GCR)\n");
+    }
 
     DemContext ctx;
-    if (!dem_open(dem_file, &ctx)) {
+    if (!dem_open(dem_file, &ctx) && !dem_open("../../geotiff/Gale_DEM_SMG_1m.tif", &ctx)) {
         fprintf(stderr, "Error al abrir el DEM marciano.\n");
         return 1;
     }
@@ -97,8 +129,9 @@ int main(int argc, char **argv) {
 
     PathResult path;
     printf("Buscando ruta óptima con A* espacio-temporal...\n");
-    if (!astar_find_path(&ctx, start_lon, start_lat, goal_lon, goal_lat, start_sol_hour, step_meters, &weights, &limits, &path)) {
+    if (!astar_find_path(&ctx, start_lon, start_lat, goal_lon, goal_lat, start_sol_hour, step_meters, &weights, &limits, &env, &path)) {
         fprintf(stderr, "No se encontró una ruta viable cumpliendo las restricciones marcianas.\n");
+        radiation_cleanup();
         dem_close(&ctx);
         return 2;
     }
@@ -109,6 +142,8 @@ int main(int argc, char **argv) {
     printf("  Duración estimada:     %.2f s (%.2f min)\n", path.total_duration_s, path.total_duration_s / 60.0);
     printf("  Rango de temperatura:  %.1f °C a %.1f °C\n", path.min_temp_c, path.max_temp_c);
     printf("  Dosis radiación acum.: %.6f mSv\n", path.total_radiation_dose_msv);
+    printf("  Tasa de dosis máxima:  %.4f mSv/día (%.1f uSv/h)\n",
+           path.peak_dose_rate_msv_day, path.peak_dose_rate_msv_day * 1000.0 / 24.0);
     printf("  Coste total:           %.2f\n", path.total_cost);
     printf("  Pendiente máxima:      %.2f°\n", path.max_slope_deg);
     printf("  Desnivel positivo:     %.2f m\n", path.cumulative_elevation_gain_m);
