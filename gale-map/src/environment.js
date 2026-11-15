@@ -4,22 +4,48 @@ import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import { Fill, Style } from 'ol/style.js';
 
+// Paleta extensa de 24 tonos: Blanco hielo -> Lavanda -> Morado -> Índigo -> Azul -> Cian -> Verde -> Amarillo -> Naranja -> Rojo
+const SPECTRUM_24 = [
+  '#f8fafc', '#e9d5ff', '#c084fc', '#9333ea',
+  '#6d28d9', '#4f46e5', '#3b82f6', '#0284c7',
+  '#06b6d4', '#0d9488', '#10b981', '#22c55e',
+  '#65a30d', '#a3e635', '#facc15', '#eab308',
+  '#f59e0b', '#f97316', '#ea580c', '#ef4444',
+  '#dc2626', '#b91c1c', '#991b1b', '#7f1d1d',
+];
+
 const layers = {
   temperature: {
     unit: '°C',
-    colors: [
-      '#2b4c8c', '#3b6db3', '#4f91c8', '#68b0cc',
-      '#86c9c3', '#a8d9b4', '#cce29f', '#ead988',
-      '#f5be70', '#f29b5b', '#e6754d', '#d14b45',
-    ],
+    colors: SPECTRUM_24,
+    // 5 marcas fijas (4 intervalos absolutos) de -95 °C a +7 °C
+    ticks: [-95, -70, -45, -20, 7],
+    valueToFraction(val, localCdf) {
+      // Escala absoluta fija [-95 °C, +7 °C] con ligero realce topográfico local (±6%)
+      // para que las curvas de nivel del cráter se distingan nítidamente a cualquier hora
+      const absFrac = (val - (-95)) / (7 - (-95));
+      const contourRelief = (localCdf - 0.5) * 0.14;
+      return Math.min(1, Math.max(0, absFrac + contourRelief));
+    },
   },
   radiation: {
     unit: 'µSv/h',
-    colors: [
-      '#35627d', '#457c96', '#5697a8', '#66b2ae',
-      '#84c4a3', '#abcf92', '#d2d17c', '#e8be68',
-      '#f09f56', '#ea7c4d', '#df5a4c', '#c93843',
-    ],
+    colors: SPECTRUM_24,
+    // Escala fija absoluta no lineal: primera mitad (22..30 µSv/h) para calma GCR,
+    // segunda mitad (30..350 µSv/h) para Tormenta Solar (SPE)
+    ticks: [22, 25, 30, 120, 350],
+    valueToFraction(val, localCdf) {
+      let baseFrac;
+      if (val <= 30) {
+        // Rango de calma GCR (22 a 30 µSv/h) ocupa de 0.05 a 0.50 de la barra (blanco/morado -> verde)
+        baseFrac = ((val - 22) / (30 - 22)) * 0.50;
+      } else {
+        // Rango de emergencia SPE (30 a 350 µSv/h) ocupa de 0.50 a 1.00 (amarillo -> naranja -> rojo)
+        baseFrac = 0.50 + Math.pow(Math.min(1, (val - 30) / (350 - 30)), 0.6) * 0.50;
+      }
+      const contourRelief = (localCdf - 0.5) * 0.14;
+      return Math.min(1, Math.max(0, baseFrac + contourRelief));
+    },
   },
 };
 
@@ -51,7 +77,8 @@ export function addEnvironmentPanel(map) {
 
   function drawGrid(grid, selectedMetric) {
     const { rows, columns, extent, values } = grid;
-    const { colors, unit } = layers[selectedMetric];
+    const layerSpec = layers[selectedMetric];
+    const { colors, unit, ticks } = layerSpec;
 
     if (
       grid.metric !== selectedMetric || grid.unit !== unit ||
@@ -73,10 +100,6 @@ export function addEnvironmentPanel(map) {
     const sorted = [...valid].sort((a, b) => a - b);
     const min = sorted[0];
     const max = sorted[sorted.length - 1];
-    // Percentiles P2 y P98 para evitar que valores extremos aislados sesguen la escala
-    const p02 = sorted[Math.floor(sorted.length * 0.02)];
-    const p98 = sorted[Math.floor(sorted.length * 0.98)];
-    const robustSpan = Math.max(1e-6, p98 - p02);
 
     const styles = colors.map(color =>
       new Style({ fill: new Fill({ color: `${color}88` }) })
@@ -104,16 +127,8 @@ export function addEnvironmentPanel(map) {
         unit,
       });
 
-      // Mapeo híbrido no lineal (75% Ecualización por Cuantiles CDF + 25% Escala Gamma sobre P2..P98):
-      // concentra las bandas de color (curvas de nivel) donde hay mayor densidad y variabilidad de alturas.
-      let fraction = 0.5;
-      if (max > min) {
-        const cdfRank = empiricalCdf(sorted, value);
-        const clamped = Math.min(p98, Math.max(p02, value));
-        const gammaNorm = Math.pow((clamped - p02) / robustSpan, 0.65);
-        fraction = 0.75 * cdfRank + 0.25 * gammaNorm;
-      }
-
+      const localCdf = max > min ? empiricalCdf(sorted, value) : 0.5;
+      const fraction = layerSpec.valueToFraction(value, localCdf);
       const index = Math.min(colors.length - 1, Math.max(0, Math.floor(fraction * colors.length)));
       cell.setStyle(styles[index]);
       cells.push(cell);
@@ -122,15 +137,43 @@ export function addEnvironmentPanel(map) {
     source.addFeatures(cells);
 
     if (legend) {
+      const wrapper = document.createElement('div');
+      wrapper.style.width = '100%';
+      wrapper.style.display = 'grid';
+      wrapper.style.gap = '4px';
+
       const bar = document.createElement('div');
       bar.style.width = '100%';
-      bar.style.height = '6px';
+      bar.style.height = '8px';
+      bar.style.borderRadius = '4px';
+      bar.style.border = '1px solid rgba(255, 255, 255, 0.18)';
       bar.style.background = `linear-gradient(to right, ${colors.join(', ')})`;
-      legend.replaceChildren(bar);
+
+      const ticksRow = document.createElement('div');
+      ticksRow.style.display = 'flex';
+      ticksRow.style.justifyContent = 'space-between';
+      ticksRow.style.fontSize = '10px';
+      ticksRow.style.fontFamily = 'var(--mono)';
+      ticksRow.style.color = 'var(--ink-bright)';
+
+      ticks.forEach((tickVal, idx) => {
+        const tick = document.createElement('small');
+        tick.style.whiteSpace = 'nowrap';
+        tick.style.fontSize = '9.5px';
+        if (unit === '°C') {
+          tick.textContent = `${tickVal > 0 ? `+${tickVal}` : tickVal} °C`;
+        } else {
+          tick.textContent = idx === ticks.length - 1 ? `${tickVal} µSv/h` : `${tickVal} µSv`;
+        }
+        ticksRow.appendChild(tick);
+      });
+
+      wrapper.append(bar, ticksRow);
+      legend.replaceChildren(wrapper);
     }
 
     status.textContent =
-      `${hourLabel.textContent} · ${min.toFixed(2)} to ${max.toFixed(2)} ${unit}`;
+      `${hourLabel.textContent} · Current: ${min.toFixed(1)} to ${max.toFixed(1)} ${unit}`;
   }
 
   async function update() {
