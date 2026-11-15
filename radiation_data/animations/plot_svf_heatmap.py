@@ -73,7 +73,7 @@ rgba[..., :3] = np.clip(rgba[..., :3] * blend_factor, 0.0, 1.0)
 rgba[invalid_mask] = [11 / 255.0, 15 / 255.0, 25 / 255.0, 1.0]
 
 plt.style.use("dark_background")
-fig, ax = plt.subplots(figsize=(12.5, 10.5), dpi=300)
+fig, ax = plt.subplots(figsize=(10.5, 9.2), dpi=300)
 fig.patch.set_facecolor("#0b0f19")
 ax.set_facecolor("#0b0f19")
 
@@ -82,48 +82,23 @@ ax.imshow(rgba, interpolation="bilinear")
 sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
 sm.set_array([])
 
-cbar = fig.colorbar(sm, ax=ax, fraction=0.032, pad=0.035)
+cbar = fig.colorbar(sm, ax=ax, fraction=0.032, pad=0.025)
 ticks = [0.75, 0.90, 0.95, 0.98, 0.992, 1.00]
 cbar.set_ticks(ticks)
-cbar.set_ticklabels([
-    "0.75  (Deep Canyon Shelter · ~21 µSv/h)",
-    "0.90  (Steep Crater Wall · ~24 µSv/h)",
-    "0.95  (Scarp / Valley Floor · ~25.5 µSv/h)",
-    "0.98  (Moderate Relief · ~26.5 µSv/h)",
-    "0.992 (Low Undulation · ~27.0 µSv/h)",
-    "1.00  (Exposed Open Plain · ~27.5 µSv/h)",
-])
+cbar.set_ticklabels(["0.75", "0.90", "0.95", "0.98", "0.99", "1.00"])
 cbar.set_label(
-    "Topographic Radiation Exposure Factor  [0.15 + 0.85 × SVF_eff]",
+    "Exposure Factor (0.15 + 0.85·SVF)",
     color="#f8fafc",
-    fontsize=11.5,
-    fontweight="bold",
-    labelpad=12,
+    fontsize=11,
+    labelpad=8,
 )
-cbar.ax.yaxis.set_tick_params(color="#cbd5e1", labelsize=9.5)
+cbar.ax.yaxis.set_tick_params(color="#cbd5e1", labelsize=10)
 cbar.outline.set_edgecolor("#334155")
 plt.setp(cbar.ax.get_yticklabels(), color="#e2e8f0", family="monospace")
 
-ax.set_title(
-    "Gale Crater · Topographic Radiation Shielding & Sky View Factor (SVF)",
-    color="#f8fafc",
-    fontsize=14.5,
-    fontweight="bold",
-    pad=18,
-)
-ax.text(
-    0.5,
-    1.006,
-    "Non-Linear Hypsometric Scale · 32-Azimuth Horizon Ray-Casting over HiRISE DEM (Gale Crater / Aeolis Mons)",
-    transform=ax.transAxes,
-    ha="center",
-    va="bottom",
-    color="#94a3b8",
-    fontsize=10,
-)
 ax.axis("off")
 
 plt.tight_layout()
 out_file = os.path.join(os.path.dirname(__file__) or ".", "gale_radiation_shielding_heatmap.png")
-plt.savefig(out_file, facecolor=fig.get_facecolor(), edgecolor="none", dpi=300)
+plt.savefig(out_file, facecolor=fig.get_facecolor(), edgecolor="none", dpi=300, bbox_inches="tight")
 print(f"Saved heatmap to '{out_file}'!")
