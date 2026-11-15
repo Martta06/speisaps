@@ -59,18 +59,7 @@
           <button id="solar-demo" type="button">Simulate solar event</button>
         </section>
 
-        <figure class="module camera">
-          <h2>Navigation camera</h2>
-          <div class="camera-image">
-            <img src="./data/navcam.png"
-                 alt="Curiosity navigation camera view of Gale Crater">
-            <svg viewBox="0 0 200 100" aria-hidden="true">
-              <path d="M78 50h14m16 0h14M100 28v14m0 16v14"/>
-              <circle cx="100" cy="50" r="3"/>
-            </svg>
-          </div>
-          <figcaption>ARCHIVE · SOL 4102<br>NASA / JPL-Caltech</figcaption>
-        </figure>
+        
       </aside>
 
       <div class="map-frame" aria-hidden="true"></div>
@@ -101,15 +90,7 @@
           </form>
         </details>
 
-        <section class="module">
-          <h2>Rover telemetry</h2>
-          <small id="rover-status" role="status">Waiting for rover position…</small>
-          <dl class="readings">
-            <div><dt>Pitch / roll</dt><dd>— / —</dd></div>
-            <div><dt>Wheel slip</dt><dd>—</dd></div>
-            <div><dt>Power draw</dt><dd>— W</dd></div>
-          </dl>
-        </section>
+        <span id="rover-status" hidden></span>
 
         <section class="module">
           <h2>Mission log</h2>
