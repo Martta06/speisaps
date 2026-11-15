@@ -139,8 +139,14 @@ bool astar_find_path(const DemContext              *ctx,
     gx = (gx / step) * step;
     gy = (gy / step) * step;
 
-    /* Definir caja englobante (bounding box) local con margen en píxeles */
-    int margin_px = 20 * step;
+    /* Definir caja englobante (bounding box) local con margen en píxeles (~1.0 m/px en DEM) */
+    int base_margin_px = 20 * step;
+    int storm_margin_px = 0;
+    if (env_local.dust_storm_active && env_local.storm_radius_m > 0.0) {
+        /* Garantizar espacio suficiente (~1.5x radio) para rodear la tormenta sin salirse de la ventana */
+        storm_margin_px = (int)ceil(env_local.storm_radius_m * 1.5);
+    }
+    int margin_px = (storm_margin_px > base_margin_px) ? storm_margin_px : base_margin_px;
     int min_x = (sx < gx ? sx : gx) - margin_px;
     int max_x = (sx > gx ? sx : gx) + margin_px;
     int min_y = (sy < gy ? sy : gy) - margin_px;
@@ -249,16 +255,66 @@ bool astar_find_path(const DemContext              *ctx,
             double rough = 0.0;
             dem_get_roughness(ctx, nx, ny, &rough);
 
+            /* Evaluar Tormenta de Arena Dinámica en el instante tentative_t */
+            double storm_penalty = 0.0;
+            if (env_local.dust_storm_active && env_local.storm_radius_m > 0.0) {
+                double n_lon = 0.0, n_lat = 0.0;
+                dem_pixel_to_geo(ctx, nx, ny, &n_lon, &n_lat);
+
+                /* Desplazamiento lineal del centro de la tormenta en el instante tentative_t */
+                double lat_ref_rad = env_local.storm_center_lat * (M_PI / 180.0);
+                double m_per_deg_lat = MARS_RADIUS_M * (M_PI / 180.0);
+                double m_per_deg_lon = MARS_RADIUS_M * cos(lat_ref_rad) * (M_PI / 180.0);
+
+                double storm_lon_t = env_local.storm_center_lon
+                    + (env_local.storm_vel_east_ms * tentative_t) / m_per_deg_lon;
+                double storm_lat_t = env_local.storm_center_lat
+                    + (env_local.storm_vel_north_ms * tentative_t) / m_per_deg_lat;
+
+                double d_m = mars_haversine_m(n_lat, n_lon, storm_lat_t, storm_lon_t);
+                double r_storm = env_local.storm_radius_m;
+                double r_core  = r_storm * 0.3;
+
+                if (d_m < r_core) {
+                    /*
+                     * Núcleo denso (< 30% del radio): bloqueo duro (INFINITY),
+                     * SALVO que la tormenta haya spawneado encima del explorador y este paso
+                     * se esté alejando del centro (maniobra de evacuación del núcleo).
+                     */
+                    double c_lon = 0.0, c_lat = 0.0;
+                    dem_pixel_to_geo(ctx, current.x, current.y, &c_lon, &c_lat);
+                    double d_curr = mars_haversine_m(c_lat, c_lon, storm_lat_t, storm_lon_t);
+                    if (d_curr < r_core && d_m > d_curr) {
+                        /* Evacuación de emergencia hacia el exterior del núcleo */
+                        storm_penalty = (double)env_local.storm_severity_penalty * 10.0;
+                    } else {
+                        storm_penalty = INFINITY;
+                    }
+                } else if (d_m < r_storm) {
+                    /*
+                     * Periferia (30% a 100% del radio): perfil cuadrático-exponencial suave.
+                     * u = 0 en el borde exterior (d = R, derivada nula, sin quiebros bruscos)
+                     * u = 1 en la frontera del núcleo (d = 0.3*R, pared exponencial pronunciada)
+                     * Física: la opacidad óptica (Beer-Lambert) y la presión dinámica del viento
+                     * (1/2 * rho * v^2) crecen de forma cuadrática/exponencial hacia el ojo.
+                     */
+                    double u = (r_storm - d_m) / (r_storm - r_core); /* u en (0, 1] */
+                    storm_penalty = (double)env_local.storm_severity_penalty
+                                  * (u * u) * exp(1.5 * u);
+                }
+            }
+
             /* Evaluar parámetros estrictamente reales con la función de coste limpia */
             EdgeParams ep = {
-                .delta_s_m         = step_dist,
-                .delta_z_m         = dz,
-                .slope_deg         = slope,
-                .roughness         = rough,
-                .elapsed_time_s    = tentative_t,
-                .dose_rate_msv_day = current_dose_rate,
-                .temp_c            = (double)mt.temp_c,
-                .speed_ms          = 1.0
+                .delta_s_m          = step_dist,
+                .delta_z_m          = dz,
+                .slope_deg          = slope,
+                .roughness          = rough,
+                .elapsed_time_s     = tentative_t,
+                .dose_rate_msv_day  = current_dose_rate,
+                .temp_c             = (double)mt.temp_c,
+                .speed_ms           = 1.0,
+                .dust_storm_penalty = storm_penalty
             };
 
             double step_cost = edge_cost(&ep, weights, limits);

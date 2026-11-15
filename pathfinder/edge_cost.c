@@ -20,6 +20,10 @@ double edge_cost(const EdgeParams      *ep,
                  const CostWeights     *w,
                  const TraversalLimits *lim)
 {
+    /* ---- Tormenta de Arena Dinámica (núcleo < 0.3*R -> INFINITY) -- */
+    if (!isfinite(ep->dust_storm_penalty)) return INFINITY;
+    double f_storm = (ep->dust_storm_penalty > 0.0) ? ep->dust_storm_penalty : 0.0;
+
     /* ---- Pendiente y Rugosidad ------------------------------------ */
     double f_slope = slope_cost(ep->slope_deg, lim->max_slope_deg);
     if (!isfinite(f_slope)) return INFINITY;
@@ -40,6 +44,7 @@ double edge_cost(const EdgeParams      *ep,
         + w->w_rough * f_rough
         + w->w_rad   * f_rad
         + w->w_temp  * f_temp
+        + f_storm
     );
 
     /* ---- Coste vertical (trabajo gravitacional) ------------------- */

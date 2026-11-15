@@ -88,7 +88,15 @@ En `gale-map/src/solar.js`, el botón `#solar-demo` cambia el estado visual de l
   "speActive": false,
   "speRate": 0.0,
   "speMultiplier": 1.0,
-  "speOnset": 0.0
+  "speOnset": 0.0,
+  "dustStorm": {
+    "active": true,
+    "center": [137.4255, -4.5805],
+    "radiusM": 2500.0,
+    "velEastMs": 10.0,
+    "velNorthMs": 0.0,
+    "severityPenalty": 25.0
+  }
 }
 ```
 - `origin`, `destination` (**obligatorios**): `[lon, lat]` dentro de `galeExtent`.

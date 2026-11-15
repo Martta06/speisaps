@@ -299,6 +299,28 @@ static void test_radiation_model(void)
             free_path_result(&p_spe);
         }
 
+        /* 8. Tormenta de arena dinámica en medio del camino: A* la rodea */
+        DynamicEnvironmentState env_dust = env;
+        env_dust.dust_storm_active      = 1;
+        env_dust.storm_center_lon       = 137.4255;
+        env_dust.storm_center_lat       = -4.5805;
+        env_dust.storm_radius_m         = 40.0;
+        env_dust.storm_vel_east_ms      = 0.0;
+        env_dust.storm_vel_north_ms     = 0.0;
+        env_dust.storm_severity_penalty = 50.0f;
+        PathResult p_base, p_detour;
+        bool ok_b = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 9.0, 1, &weights, &limits, &env,      &p_base);
+        bool ok_d = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 9.0, 1, &weights, &limits, &env_dust, &p_detour);
+        check("A* rodea tormenta de arena activa", ok_d);
+        if (ok_b && ok_d) {
+            check("Desvío por tormenta de arena alarga la distancia frente a ruta libre",
+                  p_detour.total_distance_m > p_base.total_distance_m);
+            printf("    dist libre = %.1f m | dist rodeando tormenta = %.1f m\n",
+                   p_base.total_distance_m, p_detour.total_distance_m);
+            free_path_result(&p_base);
+            free_path_result(&p_detour);
+        }
+
         dem_close(&ctx);
     }
 
