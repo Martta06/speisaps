@@ -1,6 +1,7 @@
 import Feature from 'ol/Feature.js';
 import Point from 'ol/geom/Point.js';
 import LineString from 'ol/geom/LineString.js';
+import Translate from 'ol/interaction/Translate.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import { Circle, Fill, Stroke, Style, Text } from 'ol/style.js';
@@ -54,6 +55,7 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
     const panel = document.getElementById('route-panel');
     const status = document.getElementById('route-status');
     const submit = document.getElementById('find-route');
+    const resetBtn = document.getElementById('reset-route');
     const hour = document.getElementById('sol-hour');
     const travelMode = document.getElementById('travel-mode');
     const source = new VectorSource({ wrapX: false });
@@ -137,7 +139,7 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
         lat.min = extent[1];
         lat.max = extent[3];
 
-        markers[key] = new Feature();
+        markers[key] = new Feature({ markerKey: key });
         markers[key].setStyle(markerStyle(letter));
         source.addFeature(markers[key]);
 
@@ -154,6 +156,78 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
         button.addEventListener('click', () => {
             setPicking(key);
             status.textContent = `Click the map to set the ${key}.`;
+        });
+    }
+
+    // Interacción para arrastrar los marcadores A y B de forma independiente sobre el mapa
+    const translate = new Translate({
+        filter: feature => feature === markers.origin || feature === markers.destination,
+        hitTolerance: 6,
+    });
+    map.addInteraction(translate);
+
+    let hadRouteBeforeDrag = false;
+
+    translate.on('translatestart', () => {
+        setPicking(null);
+        hadRouteBeforeDrag = Boolean(route);
+        clearRoute();
+        map.getTargetElement().style.cursor = 'grabbing';
+    });
+
+    translate.on('translating', event => {
+        event.features.forEach(feature => {
+            const key = feature.get('markerKey');
+            const geom = feature.getGeometry();
+            if (!key || !geom) return;
+
+            const coords = geom.getCoordinates();
+            const clampedLon = Math.min(extent[2], Math.max(extent[0], coords[0]));
+            const clampedLat = Math.min(extent[3], Math.max(extent[1], coords[1]));
+            geom.setCoordinates([clampedLon, clampedLat]);
+
+            fields[key].lon.value = String(Number(clampedLon.toFixed(6)));
+            fields[key].lat.value = String(Number(clampedLat.toFixed(6)));
+
+            if (key === 'origin') {
+                rover.setOrigin([clampedLon, clampedLat]);
+            }
+        });
+    });
+
+    translate.on('translateend', () => {
+        map.getTargetElement().style.cursor = '';
+        if (hadRouteBeforeDrag && readPoint('origin') && readPoint('destination')) {
+            calculateRoute({ autoRecalc: true });
+        } else if (readPoint('origin') && readPoint('destination')) {
+            status.textContent = 'Point moved. Select Find route when ready.';
+        }
+    });
+
+    map.on('pointermove', event => {
+        if (picking || event.dragging) return;
+        const hitMarker = map.hasFeatureAtPixel(event.pixel, {
+            layerFilter: layer => layer.getSource() === source,
+            hitTolerance: 6,
+        });
+        map.getTargetElement().style.cursor = hitMarker ? 'grab' : '';
+    });
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            setPicking(null);
+            for (const key of ['origin', 'destination']) {
+                fields[key].lon.value = '';
+                fields[key].lat.value = '';
+                markers[key].setGeometry(undefined);
+            }
+            clearRoute();
+            rover.setOrigin(null);
+            status.textContent = '';
+
+            const view = map.getView();
+            view.cancelAnimations();
+            view.fit(extent, { size: map.getSize(), duration: 500 });
         });
     }
 
@@ -278,8 +352,6 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
             source.addFeature(route);
             rover.play(data.full_coordinates);
 
-            // Collapse the controls so the route is easier to see.
-            panel.open = false;
             fitRouteView();
 
             const distKm = Number.isFinite(data.distance_m)

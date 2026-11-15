@@ -65,8 +65,8 @@
       <div class="map-frame" aria-hidden="true"></div>
 
       <aside class="wing right-wing">
-        <details class="module" id="route-panel" open>
-          <summary>Route planner</summary>
+        <section class="module" id="route-panel">
+          <h2>Route planner</h2>
           <form id="route-form">
             <fieldset>
               <legend>A / Origin</legend>
@@ -86,16 +86,17 @@
               <option value="eva">On foot (EVA)</option>
             </select>
             <button type="submit" id="find-route">Find route</button>
+            <button type="button" id="reset-route">Reset points</button>
             <small id="route-status" role="status"></small>
           </form>
-        </details>
+        </section>
 
         <span id="rover-status" hidden></span>
 
-        <section class="module">
-          <h2>Mission log</h2>
+        <details class="module" open>
+          <summary>Mission log</summary>
           <ol id="mission-log"></ol>
-        </section>
+        </details>
       </aside>
     </div>
 
