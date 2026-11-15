@@ -16,6 +16,9 @@ import tempfile
 import subprocess
 from datetime import datetime, timezone
 from flask import Flask, request, jsonify
+import ctypes
+import math
+import threading
 
 app = Flask(__name__)
 
@@ -441,6 +444,76 @@ def find_camp():
                 os.remove(tmp_geojson)
             except OSError:
                 pass
+
+
+
+_env_library = None
+_env_lock = threading.Lock()
+
+
+@app.get("/api/environment")
+def environment_grid():
+    global _env_library
+
+    metric = request.args.get("metric")
+    if metric not in ("temperature", "radiation"):
+        return jsonify(error="Unknown environment metric."), 400
+
+    hour = request.args.get("localHour", default=None, type=float)
+    if hour is None or not math.isfinite(hour) or not 0 <= hour < 24:
+        return jsonify(error="localHour must be in [0, 24)."), 400
+
+    rows, columns = 205, 160
+    extent = [
+        GALE_EXTENT["west"], GALE_EXTENT["south"],
+        GALE_EXTENT["east"], GALE_EXTENT["north"],
+    ]
+
+    buffer_type = ctypes.c_float * (rows * columns)
+    radiation = buffer_type()
+    temperature = buffer_type()
+
+    try:
+        with _env_lock:
+            if _env_library is None:
+                path = os.path.join(BASE_DIR, "radiation_data", "mars_env.dll")
+                library = ctypes.CDLL(path)
+                function = library.get_environment_grid_frontend
+                float_pointer = ctypes.POINTER(ctypes.c_float)
+
+                function.argtypes = [
+                    ctypes.c_double, ctypes.c_double,
+                    ctypes.c_double, ctypes.c_double,
+                    ctypes.c_int, ctypes.c_int,
+                    ctypes.c_float, ctypes.c_float,
+                    float_pointer, float_pointer,
+                ]
+                function.restype = None
+                _env_library = library
+
+            _env_library.get_environment_grid_frontend(
+                *extent, rows, columns, hour,
+                1.0,  # Background radiation; no solar particle event.
+                radiation, temperature,
+            )
+    except (OSError, AttributeError):
+        app.logger.exception("Environmental model unavailable")
+        return jsonify(error="Environmental model unavailable."), 503
+
+    is_temperature = metric == "temperature"
+    result = temperature if is_temperature else radiation
+
+    return jsonify(
+        metric=metric,
+        localHour=hour,
+        sol=1,
+        crs="ESRI:104905",
+        extent=extent,
+        rows=rows,
+        columns=columns,
+        unit="°C" if is_temperature else "µSv/h",
+        values=[v if math.isfinite(v) else None for v in result],
+    )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))

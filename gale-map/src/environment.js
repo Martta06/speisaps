@@ -4,101 +4,143 @@ import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import { Fill, Style } from 'ol/style.js';
 
-// We use colors depending on the risks
-const riskStyles = {
-    low: new Style({ fill: new Fill({ color: 'rgba(54, 185, 138, 0.33)' }) }),
-    moderate: new Style({ fill: new Fill({ color: 'rgba(243, 181, 68, 0.43)' }) }),
-    high: new Style({ fill: new Fill({ color: 'rgba(234, 96, 88, 0.53)' }) }),
+const layers = {
+  temperature: {
+    unit: '°C',
+    colors: ['#476bc2', '#63a5d5', '#a4dacf', '#f4bd72', '#df6553'],
+  },
+  radiation: {
+    unit: 'µSv/h',
+    colors: ['#5084a1', '#66b8ae', '#d4ce78', '#ec9951', '#da5451'],
+  },
 };
 
-// Synthetic patterns for the interface preview.
-function makePreviewGrid(metric, hour, extent) {
-    const columns = 32;
-    const rows = 36;
-    const phase = (2 * Math.PI * hour) / 24;
-    const levels = [];
+export function addEnvironmentPanel(map) {
+  const metric = document.getElementById('environment-metric');
+  const hour = document.getElementById('sol-hour');
+  const hourLabel = document.getElementById('sol-hour-label');
+  const status = document.getElementById('environment-status');
+  const legend = document.querySelector('#environment-panel .risk-legend');
 
-  // Row 0 is the southern edge. Each row runs west to east.
-    for (let row = 0; row < rows; row++) {
-        for (let column = 0; column < columns; column++) {
-        const x = (column + 0.5) / columns;  // Centre of each celda normalized between 0 and 1
-        const y = (row + 0.5) / rows;
+  const source = new VectorSource({ wrapX: false });
+  map.addLayer(new VectorLayer({ source, zIndex: 5 }));
 
-        const pattern = metric === 'temperature'  // Test function for temperature to make smooth transitions
-            ? Math.sin(4 * x + phase) + 0.7 * Math.cos(5 * y - phase)
-            : Math.cos(5 * x - 3 * y - phase) + 0.5 * Math.sin(6 * y + phase);
+  let pending = null;
 
-        let level = 'moderate';
-        if (pattern < -0.45) level = 'low';
-        if (pattern > 0.45) level = 'high';
-        levels.push(level);
-        }   
+  function drawGrid(grid, selectedMetric) {
+    const { rows, columns, extent, values } = grid;
+    const { colors, unit } = layers[selectedMetric];
+
+    if (
+      grid.metric !== selectedMetric || grid.unit !== unit ||
+      !Number.isInteger(rows) || rows < 1 ||
+      !Number.isInteger(columns) || columns < 1 ||
+      !Array.isArray(values) || values.length !== rows * columns ||
+      !Array.isArray(extent) || extent.length !== 4 ||
+      !extent.every(Number.isFinite)
+    ) {
+      throw new Error('Unexpected environment API response');
     }
 
-    return { extent, columns, rows, levels };
-}
+    const valid = values.filter(Number.isFinite);
+    if (!valid.length) {
+      status.textContent = 'No data available for this hour.';
+      return;
+    }
 
-function drawGrid(source, grid) {
-    const { extent, columns, rows, levels } = grid;
+    const min = Math.min(...valid);
+    const max = Math.max(...valid);
+    const styles = colors.map(color =>
+      new Style({ fill: new Fill({ color: `${color}99` }) })
+    );
+
     const [west, south, east, north] = extent;
     const dx = (east - west) / columns;
     const dy = (north - south) / rows;
-    const features = [];
+    const cells = [];
 
-    for (let i = 0; i < levels.length; i++) {
-        const level = levels[i];
-        if (!Object.hasOwn(riskStyles, level)) continue;
+    for (let i = 0; i < values.length; i++) {
+      const value = values[i];
+      if (!Number.isFinite(value)) continue;
 
-        const left = west + (i % columns) * dx;
-        const bottom = south + Math.floor(i / columns) * dy;
-        const right = left + dx;
-        const top = bottom + dy;
+      // Backend row 0 starts at the southwest corner.
+      const x = west + (i % columns) * dx;
+      const y = south + Math.floor(i / columns) * dy;
+      const ring = [
+        [x, y], [x + dx, y], [x + dx, y + dy], [x, y + dy], [x, y],
+      ];
 
-        features.push(new Feature({
-        level,
-        geometry: new Polygon([[
-            [left, bottom], [right, bottom], [right, top],
-            [left, top], [left, bottom],
-        ]]),
-        }));
+      const cell = new Feature({
+        geometry: new Polygon([ring]),
+        value,
+        unit,
+      });
+
+      const fraction = max === min ? 0.5 : (value - min) / (max - min);
+      const index = Math.min(colors.length - 1, Math.floor(fraction * colors.length));
+      cell.setStyle(styles[index]);
+      cells.push(cell);
     }
 
+    source.addFeatures(cells);
+
+    if (legend) {
+      const bar = document.createElement('div');
+      bar.style.width = '100%';
+      bar.style.height = '6px';
+      bar.style.background = `linear-gradient(to right, ${colors.join(', ')})`;
+      legend.replaceChildren(bar);
+    }
+
+    status.textContent =
+      `${hourLabel.textContent} · ${min.toFixed(2)} to ${max.toFixed(2)} ${unit}`;
+  }
+
+  async function update() {
+    pending?.abort();
+    pending = null;
     source.clear();
-    source.addFeatures(features);
-}
+    legend?.replaceChildren();
 
-export function addEnvironmentPanel(map, extent) {
-    const metric = document.getElementById('environment-metric');
-    const hour = document.getElementById('sol-hour');
-    const hourLabel = document.getElementById('sol-hour-label');
-    const status = document.getElementById('environment-status');
+    const selectedMetric = metric.value;
+    hourLabel.textContent = `${hour.value.padStart(2, '0')}:00`;
 
-    const source = new VectorSource({ wrapX: false });
-    const layer = new VectorLayer({
-        source,
-        zIndex: 5,
-        style: feature => riskStyles[feature.get('level')],
-    });
-    map.addLayer(layer);
-
-    function update() {
-        const time = Number(hour.value);
-        hourLabel.textContent = `${String(time).padStart(2, '0')}:00`;
-
-        const active = metric.value !== 'off';
-        layer.setVisible(active);
-
-        if (!active) {
-        status.textContent = 'Layer off';
-        return;
-        }
-
-        const grid = makePreviewGrid(metric.value, time, extent);
-        drawGrid(source, grid);
-        status.textContent = 'Simulated risk · Interface preview';
+    if (selectedMetric === 'off') {
+      status.textContent = 'Layer off';
+      return;
     }
 
-    metric.addEventListener('change', update);
-    hour.addEventListener('input', update);
-    update();
+    const controller = new AbortController();
+    pending = controller;
+    status.textContent = 'Loading environment data…';
+
+    try {
+      const params = new URLSearchParams({
+        metric: selectedMetric,
+        localHour: hour.value,
+      });
+
+      const response = await fetch(`/api/environment?${params}`, {
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Environment API returned HTTP ${response.status}`);
+      }
+
+      const grid = await response.json();
+      if (!controller.signal.aborted) drawGrid(grid, selectedMetric);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      console.error(error);
+      status.textContent = 'Environment data unavailable.';
+    } finally {
+      if (pending === controller) pending = null;
+    }
+  }
+
+  metric.addEventListener('change', update);
+  hour.addEventListener('input', update);
+  update();
 }
