@@ -48,9 +48,12 @@ M_PER_DEG_LON = MARS_RADIUS_M * math.cos(-4.58 * math.pi / 180.0) * (math.pi / 1
 # Estado dinámico de la tormenta de arena en el servidor
 STORM_STATE = {
     "active": False,
+    "frozen": False,
     "spawn_time": 0.0,
     "spawn_lon": 137.320,
     "spawn_lat": -4.620,
+    "frozen_lon": 137.320,
+    "frozen_lat": -4.620,
     "vel_east_ms": 12.0,
     "vel_north_ms": -3.0,
     "diameter_m": 5000.0,
@@ -77,9 +80,12 @@ def spawn_random_storm(custom_data=None):
 
     STORM_STATE.update({
         "active": True,
+        "frozen": False,
         "spawn_time": time.time(),
         "spawn_lon": lon,
         "spawn_lat": lat,
+        "frozen_lon": lon,
+        "frozen_lat": lat,
         "vel_east_ms": ve,
         "vel_north_ms": vn,
         "diameter_m": diameter_m,
@@ -93,11 +99,21 @@ def get_current_storm_snapshot():
     if not STORM_STATE["active"]:
         return None
 
-    dt = max(0.0, time.time() - STORM_STATE["spawn_time"])
-    # Aceleración visual x10 para la demo en vivo si no se especifica otra cosa
-    sim_dt = dt * 10.0
-    cur_lon = STORM_STATE["spawn_lon"] + (STORM_STATE["vel_east_ms"] * sim_dt) / M_PER_DEG_LON
-    cur_lat = STORM_STATE["spawn_lat"] + (STORM_STATE["vel_north_ms"] * sim_dt) / M_PER_DEG_LAT
+    if STORM_STATE.get("frozen"):
+        cur_lon = STORM_STATE["frozen_lon"]
+        cur_lat = STORM_STATE["frozen_lat"]
+        ve_effective = 0.0
+        vn_effective = 0.0
+        motion = "stationary"
+    else:
+        dt = max(0.0, time.time() - STORM_STATE["spawn_time"])
+        # Aceleración visual x10 para la demo en vivo si no se especifica otra cosa
+        sim_dt = dt * 10.0
+        cur_lon = STORM_STATE["spawn_lon"] + (STORM_STATE["vel_east_ms"] * sim_dt) / M_PER_DEG_LON
+        cur_lat = STORM_STATE["spawn_lat"] + (STORM_STATE["vel_north_ms"] * sim_dt) / M_PER_DEG_LAT
+        ve_effective = round(STORM_STATE["vel_east_ms"], 2)
+        vn_effective = round(STORM_STATE["vel_north_ms"], 2)
+        motion = "approaching" if STORM_STATE["vel_east_ms"] >= 0 else "receding"
 
     radius_m = STORM_STATE["diameter_m"] / 2.0
     radius_deg = radius_m / M_PER_DEG_LAT
@@ -112,18 +128,20 @@ def get_current_storm_snapshot():
     if out_of_bounds:
         # Si se sale por completo del mapa, la desactivamos limpiamente
         STORM_STATE["active"] = False
+        STORM_STATE["frozen"] = False
         return None
 
     return {
         "active": True,
+        "frozen": bool(STORM_STATE.get("frozen", False)),
         "center": [round(cur_lon, 6), round(cur_lat, 6)],
         "diameterM": STORM_STATE["diameter_m"],
         "radiusM": radius_m,
         "dangerLevel": STORM_STATE["danger_level"],
-        "motion": "approaching" if STORM_STATE["vel_east_ms"] >= 0 else "receding",
+        "motion": motion,
         "windSpeedMs": STORM_STATE["wind_speed_ms"],
-        "velEastMs": round(STORM_STATE["vel_east_ms"], 2),
-        "velNorthMs": round(STORM_STATE["vel_north_ms"], 2),
+        "velEastMs": ve_effective,
+        "velNorthMs": vn_effective,
         "severityPenalty": STORM_STATE["severity_penalty"],
         "simulated": True,
         "provenance": "Mars Environmental Dynamics Analyzer (MEDA) Simulator",
@@ -340,12 +358,28 @@ def storm_telemetry():
         body = request.get_json(silent=True) or {}
         if body.get("active") is False or body.get("clear") is True:
             STORM_STATE["active"] = False
+            STORM_STATE["frozen"] = False
             return jsonify({"active": False, "storm": None})
+        if body.get("action") == "freeze":
+            snap = get_current_storm_snapshot()
+            if snap is not None:
+                STORM_STATE["frozen"] = True
+                STORM_STATE["frozen_lon"] = snap["center"][0]
+                STORM_STATE["frozen_lat"] = snap["center"][1]
+            return jsonify(get_current_storm_snapshot() or {"active": False, "storm": None})
+        if body.get("action") == "unfreeze":
+            if STORM_STATE["active"] and STORM_STATE.get("frozen"):
+                STORM_STATE["spawn_lon"] = STORM_STATE["frozen_lon"]
+                STORM_STATE["spawn_lat"] = STORM_STATE["frozen_lat"]
+                STORM_STATE["spawn_time"] = time.time()
+                STORM_STATE["frozen"] = False
+            return jsonify(get_current_storm_snapshot() or {"active": False, "storm": None})
         spawn_random_storm(body)
         return jsonify(get_current_storm_snapshot())
 
     if request.method == "DELETE":
         STORM_STATE["active"] = False
+        STORM_STATE["frozen"] = False
         return jsonify({"active": False, "storm": None})
 
     # GET: Si hay una tormenta spawneada con POST, devuelve su evolución (con chequeo de bordes)
@@ -353,19 +387,9 @@ def storm_telemetry():
     if snap is not None:
         return jsonify(snap)
 
-    # Si no se ha llamado a POST todavía, mantiene la deriva cíclica dentro de Gale Crater para el polling por defecto
-    t = time.time()
-    drift = (t / 60.0) % 1.0
-    storm_lon = 137.280 + drift * 0.15
-    storm_lat = -4.650
-
     return jsonify({
-        "center": [round(storm_lon, 6), round(storm_lat, 6)],
-        "diameterM": 8500.0,
-        "dangerLevel": 3,
-        "motion": "approaching",
-        "windSpeedMs": 24.5,
-        "simulated": True,
+        "active": False,
+        "storm": None,
         "provenance": "Mars Environmental Dynamics Analyzer (MEDA) Simulator"
     })
 

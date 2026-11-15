@@ -34,10 +34,20 @@ export function addSolarAlert() {
 
     let phase = 'clear';
 
+    function getSolarState() {
+        if (phase === 'active') {
+            return { phase, speActive: true, speRate: 300.0, speMultiplier: 10.0, speOnset: 0.0 };
+        }
+        if (phase === 'forecast') {
+            return { phase, speActive: true, speRate: 150.0, speMultiplier: 5.0, speOnset: 600.0 };
+        }
+        return { phase: 'clear', speActive: false, speRate: 0.0, speMultiplier: 1.0, speOnset: 0.0 };
+    }
+
     button.addEventListener('click', () => {
         if (phase === 'clear') {
             phase = 'forecast';
-            updateSolar({ phase, estimatedArrivalMinutes: null, simulated: true });
+            updateSolar({ phase, estimatedArrivalMinutes: 10, simulated: true });
             button.textContent = 'Simulate event onset';
         } else if (phase === 'forecast') {
             phase = 'active';
@@ -48,7 +58,8 @@ export function addSolarAlert() {
             updateSolar(null);
             button.textContent = 'Simulate solar event';
         }
+        window.dispatchEvent(new CustomEvent('solar-change', { detail: getSolarState() }));
     });
 
-    return { updateSolar };
+    return { updateSolar, getSolarState };
 }   
