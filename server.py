@@ -9,7 +9,9 @@ Vite (gale-map) reenvía automáticamente las peticiones de /api a este puerto.
 import os
 import sys
 import json
+import math
 import time
+import random
 import tempfile
 import subprocess
 from datetime import datetime, timezone
@@ -38,6 +40,94 @@ GALE_EXTENT = {
     "east": 137.729812907,
     "north": -4.248963057,
 }
+
+MARS_RADIUS_M = 3396190.0
+M_PER_DEG_LAT = MARS_RADIUS_M * (math.pi / 180.0)
+M_PER_DEG_LON = MARS_RADIUS_M * math.cos(-4.58 * math.pi / 180.0) * (math.pi / 180.0)
+
+# Estado dinámico de la tormenta de arena en el servidor
+STORM_STATE = {
+    "active": False,
+    "spawn_time": 0.0,
+    "spawn_lon": 137.320,
+    "spawn_lat": -4.620,
+    "vel_east_ms": 12.0,
+    "vel_north_ms": -3.0,
+    "diameter_m": 5000.0,
+    "danger_level": 3,
+    "wind_speed_ms": 22.0,
+    "severity_penalty": 25.0,
+}
+
+def spawn_random_storm(custom_data=None):
+    """Genera una tormenta dentro de los límites de Gale Crater con margen de seguridad."""
+    data = custom_data or {}
+    margin_deg = 0.06  # ~3.5 km de margen interior para no spawnear pegada al borde
+    lon = float(data.get("lon", random.uniform(GALE_EXTENT["west"] + margin_deg, GALE_EXTENT["east"] - margin_deg)))
+    lat = float(data.get("lat", random.uniform(GALE_EXTENT["south"] + margin_deg, GALE_EXTENT["north"] - margin_deg)))
+    if "center" in data and isinstance(data["center"], list) and len(data["center"]) >= 2:
+        lon, lat = float(data["center"][0]), float(data["center"][1])
+
+    diameter_m = float(data.get("diameterM", random.uniform(4000.0, 8500.0)))
+    wind_speed = float(data.get("windSpeedMs", random.uniform(18.0, 28.0)))
+    heading_rad = random.uniform(-math.pi / 3.0, math.pi / 3.0)  # Deriva predominante Oeste -> Este
+    ve = float(data.get("velEastMs", wind_speed * 0.5 * math.cos(heading_rad)))
+    vn = float(data.get("velNorthMs", wind_speed * 0.5 * math.sin(heading_rad)))
+    danger = int(data.get("dangerLevel", min(5, max(1, int(round((wind_speed - 10.0) / 4.0))))))
+
+    STORM_STATE.update({
+        "active": True,
+        "spawn_time": time.time(),
+        "spawn_lon": lon,
+        "spawn_lat": lat,
+        "vel_east_ms": ve,
+        "vel_north_ms": vn,
+        "diameter_m": diameter_m,
+        "danger_level": danger,
+        "wind_speed_ms": round(wind_speed, 1),
+        "severity_penalty": float(data.get("severityPenalty", 10.0 * danger)),
+    })
+
+def get_current_storm_snapshot():
+    """Calcula la posición actual de la tormenta y verifica si se ha salido de los límites del mapa."""
+    if not STORM_STATE["active"]:
+        return None
+
+    dt = max(0.0, time.time() - STORM_STATE["spawn_time"])
+    # Aceleración visual x10 para la demo en vivo si no se especifica otra cosa
+    sim_dt = dt * 10.0
+    cur_lon = STORM_STATE["spawn_lon"] + (STORM_STATE["vel_east_ms"] * sim_dt) / M_PER_DEG_LON
+    cur_lat = STORM_STATE["spawn_lat"] + (STORM_STATE["vel_north_ms"] * sim_dt) / M_PER_DEG_LAT
+
+    radius_m = STORM_STATE["diameter_m"] / 2.0
+    radius_deg = radius_m / M_PER_DEG_LAT
+
+    # Comprobar si la tormenta completa ha salido de los límites de Gale Crater
+    out_of_bounds = (
+        cur_lon - radius_deg > GALE_EXTENT["east"] or
+        cur_lon + radius_deg < GALE_EXTENT["west"] or
+        cur_lat - radius_deg > GALE_EXTENT["north"] or
+        cur_lat + radius_deg < GALE_EXTENT["south"]
+    )
+    if out_of_bounds:
+        # Si se sale por completo del mapa, la desactivamos limpiamente
+        STORM_STATE["active"] = False
+        return None
+
+    return {
+        "active": True,
+        "center": [round(cur_lon, 6), round(cur_lat, 6)],
+        "diameterM": STORM_STATE["diameter_m"],
+        "radiusM": radius_m,
+        "dangerLevel": STORM_STATE["danger_level"],
+        "motion": "approaching" if STORM_STATE["vel_east_ms"] >= 0 else "receding",
+        "windSpeedMs": STORM_STATE["wind_speed_ms"],
+        "velEastMs": round(STORM_STATE["vel_east_ms"], 2),
+        "velNorthMs": round(STORM_STATE["vel_north_ms"], 2),
+        "severityPenalty": STORM_STATE["severity_penalty"],
+        "simulated": True,
+        "provenance": "Mars Environmental Dynamics Analyzer (MEDA) Simulator",
+    }
 
 @app.after_request
 def add_cors_headers(response):
@@ -78,6 +168,18 @@ def compute_route():
         spe_rate = (spe_mult - 1.0) * 26.7
     elif spe_active and spe_rate <= 0.0:
         spe_rate = 150.0
+
+    # Soporte para Tormenta de Arena Dinámica (enviada en el body o activa en STORM_STATE)
+    dust_storm = data.get("dustStorm")
+    if not dust_storm and STORM_STATE["active"]:
+        dust_storm = get_current_storm_snapshot()
+    dust_storm = dust_storm or {}
+    dust_active = bool(dust_storm.get("active", bool(dust_storm))) if isinstance(dust_storm, dict) else False
+    dust_center = dust_storm.get("center") if isinstance(dust_storm, dict) else None
+    dust_radius_m = float(dust_storm.get("radiusM", float(dust_storm.get("diameterM", 0.0)) / 2.0)) if isinstance(dust_storm, dict) else 0.0
+    dust_ve = float(dust_storm.get("velEastMs", dust_storm.get("windSpeedMs", 0.0))) if isinstance(dust_storm, dict) else 0.0
+    dust_vn = float(dust_storm.get("velNorthMs", 0.0)) if isinstance(dust_storm, dict) else 0.0
+    dust_pen = float(dust_storm.get("severityPenalty", 25.0)) if isinstance(dust_storm, dict) else 25.0
 
     if not origin or not destination or len(origin) < 2 or len(destination) < 2:
         return jsonify({"error": "Parámetros 'origin' y 'destination' requeridos como [lon, lat]"}), 400
@@ -142,6 +244,16 @@ def compute_route():
         ]
         if spe_rate > 0.0:
             cmd.extend(["--spe", f"{spe_rate:.2f}", "--spe-onset", f"{spe_onset:.1f}"])
+        if dust_active and dust_center and len(dust_center) >= 2 and dust_radius_m > 0.0:
+            cmd.extend([
+                "--dust-storm",
+                f"{float(dust_center[0]):.7f}",
+                f"{float(dust_center[1]):.7f}",
+                f"{dust_radius_m:.1f}",
+                f"{dust_ve:.2f}",
+                f"{dust_vn:.2f}",
+                f"{dust_pen:.1f}",
+            ])
 
         t0 = time.time()
         proc = subprocess.run(cmd, cwd=os.path.join(BASE_DIR, "pathfinder"),
@@ -213,11 +325,36 @@ def rover_telemetry():
         "mode": "autonomous_drive"
     })
 
-@app.route("/api/storm", methods=["GET"])
+@app.route("/api/storm", methods=["GET", "POST", "DELETE", "OPTIONS"])
 def storm_telemetry():
-    """Devuelve el estado de la tormenta de polvo detectada."""
+    """
+    Gestiona y devuelve el estado de la tormenta de polvo:
+    - POST /api/storm: Spawnea una tormenta aleatoria (o con los parámetros dados) dentro de Gale Crater.
+    - DELETE /api/storm: Limpia/desactiva la tormenta activa.
+    - GET /api/storm: Devuelve la posición actualizada cada 2s (y la desactiva si sale del mapa).
+    """
+    if request.method == "OPTIONS":
+        return "", 204
+
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        if body.get("active") is False or body.get("clear") is True:
+            STORM_STATE["active"] = False
+            return jsonify({"active": False, "storm": None})
+        spawn_random_storm(body)
+        return jsonify(get_current_storm_snapshot())
+
+    if request.method == "DELETE":
+        STORM_STATE["active"] = False
+        return jsonify({"active": False, "storm": None})
+
+    # GET: Si hay una tormenta spawneada con POST, devuelve su evolución (con chequeo de bordes)
+    snap = get_current_storm_snapshot()
+    if snap is not None:
+        return jsonify(snap)
+
+    # Si no se ha llamado a POST todavía, mantiene la deriva cíclica dentro de Gale Crater para el polling por defecto
     t = time.time()
-    # Desplazamiento progresivo hacia el este de Gale Crater
     drift = (t / 60.0) % 1.0
     storm_lon = 137.280 + drift * 0.15
     storm_lat = -4.650

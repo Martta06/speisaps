@@ -36,6 +36,8 @@ int main(int argc, char **argv) {
         printf("  --spe-onset <s>: Segundos desde partida de inicio del SPE (defecto 0)\n");
         printf("  --spe-end <s>:   Segundos desde partida de fin del SPE (defecto infinito)\n");
         printf("  --shield <f>:    Factor de transmisión del vehículo (1.0 EVA, 0.85 Rover)\n");
+        printf("  --dust-storm <lon> <lat> <radius_m> [vel_e_ms] [vel_n_ms] [penalty]:\n");
+        printf("                   Activa tormenta de arena dinámica centrada en (lon, lat)\n");
         printf("============================================================\n");
         return 0;
     }
@@ -53,6 +55,10 @@ int main(int argc, char **argv) {
     int step_meters = 10;        /* 10 m por defecto para alta velocidad, 1 m para táctico */
 
     double spe_rate = 0.0, spe_onset = 0.0, spe_end = INFINITY, shield_override = -1.0;
+    int dust_active = 0;
+    double dust_lon = 0.0, dust_lat = 0.0, dust_rad_m = 0.0;
+    double dust_ve = 0.0, dust_vn = 0.0;
+    float dust_pen = 25.0f;
 
     /* Separar flags --xxx de los argumentos posicionales */
     const char *pos[16];
@@ -66,6 +72,14 @@ int main(int argc, char **argv) {
             spe_end = atof(argv[++i]);
         } else if (strcmp(argv[i], "--shield") == 0 && i + 1 < argc) {
             shield_override = atof(argv[++i]);
+        } else if (strcmp(argv[i], "--dust-storm") == 0 && i + 3 < argc) {
+            dust_active = 1;
+            dust_lon = atof(argv[++i]);
+            dust_lat = atof(argv[++i]);
+            dust_rad_m = atof(argv[++i]);
+            if (i + 1 < argc && argv[i + 1][0] != '-') dust_ve  = atof(argv[++i]);
+            if (i + 1 < argc && argv[i + 1][0] != '-') dust_vn  = atof(argv[++i]);
+            if (i + 1 < argc && argv[i + 1][0] != '-') dust_pen = (float)atof(argv[++i]);
         } else if (npos < 16) {
             pos[npos++] = argv[i];
         }
@@ -91,6 +105,15 @@ int main(int argc, char **argv) {
         env.spe_end_s = spe_end;
     }
     if (shield_override > 0.0) env.vehicle_shielding = shield_override;
+    if (dust_active && dust_rad_m > 0.0) {
+        env.dust_storm_active      = 1;
+        env.storm_center_lon       = dust_lon;
+        env.storm_center_lat       = dust_lat;
+        env.storm_radius_m         = dust_rad_m;
+        env.storm_vel_east_ms      = dust_ve;
+        env.storm_vel_north_ms     = dust_vn;
+        env.storm_severity_penalty = dust_pen;
+    }
 
     printf("Iniciando Martian Pathfinder (Gale Crater)...\n");
     printf("DEM: %s\n", dem_file);
@@ -107,6 +130,11 @@ int main(int argc, char **argv) {
         else                         printf("(sin fin previsto)\n");
     } else {
         printf("SPE:           inactiva (solo GCR)\n");
+    }
+    if (env.dust_storm_active) {
+        printf("TORMENTA DE ARENA: Centro=(%.5f, %.5f), Radio=%.0f m, Deriva=(%.1f, %.1f) m/s, Penalización=%.1f\n",
+               env.storm_center_lon, env.storm_center_lat, env.storm_radius_m,
+               env.storm_vel_east_ms, env.storm_vel_north_ms, env.storm_severity_penalty);
     }
 
     DemContext ctx;

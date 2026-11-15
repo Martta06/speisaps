@@ -65,11 +65,18 @@ CostWeights weights_default_rover(void) {
 
 DynamicEnvironmentState env_state_calm(TraversalMode mode) {
     return (DynamicEnvironmentState){
-        .spe_active           = false,
-        .spe_storm_rate_uSv_h = 0.0,
-        .spe_onset_s          = 0.0,
-        .spe_end_s            = INFINITY,
-        .vehicle_shielding    = (mode == MODE_ROVER) ? SHIELDING_ROVER : SHIELDING_FOOT_EVA
+        .spe_active             = false,
+        .spe_storm_rate_uSv_h   = 0.0,
+        .spe_onset_s            = 0.0,
+        .spe_end_s              = INFINITY,
+        .vehicle_shielding      = (mode == MODE_ROVER) ? SHIELDING_ROVER : SHIELDING_FOOT_EVA,
+        .dust_storm_active      = 0,
+        .storm_center_lon       = 0.0,
+        .storm_center_lat       = 0.0,
+        .storm_vel_east_ms      = 0.0,
+        .storm_vel_north_ms     = 0.0,
+        .storm_radius_m         = 0.0,
+        .storm_severity_penalty = 25.0f
     };
 }
 

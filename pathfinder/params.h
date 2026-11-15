@@ -64,6 +64,15 @@ typedef struct {
     double spe_onset_s;           /* inicio del SPE (s desde partida), 0=ya  */
     double spe_end_s;             /* fin del SPE (s desde partida), INFINITY */
     double vehicle_shielding;     /* transmisión: 1.0 EVA, 0.85 rover        */
+
+    /* --- Campos para la Tormenta de Arena Dinámica --- */
+    int    dust_storm_active;      /* 0 = No activa, 1 = Activa                         */
+    double storm_center_lon;       /* Longitud inicial del centro de la tormenta (°E)   */
+    double storm_center_lat;       /* Latitud inicial del centro de la tormenta (°N)    */
+    double storm_vel_east_ms;      /* Velocidad de deriva en dirección Este (m/s)       */
+    double storm_vel_north_ms;     /* Velocidad de deriva en dirección Norte (m/s)      */
+    double storm_radius_m;         /* Radio de la tormenta de arena en metros           */
+    float  storm_severity_penalty; /* Multiplicador de penalización de coste / bloqueo  */
 } DynamicEnvironmentState;
 
 /* Estado en calma (sin SPE) con el blindaje correspondiente al modo */
@@ -102,6 +111,7 @@ typedef struct {
     double dose_rate_msv_day;  /* tasa de dosis total GCR+SPE, ya blindada (mSv/día) */
     double temp_c;             /* temperatura atmosférica local (°C)         */
     double speed_ms;           /* velocidad nominal de traversal (m/s)       */
+    double dust_storm_penalty; /* penalización de tormenta de arena (0, >0 o INFINITY) */
 } EdgeParams;
 
 /* ------------------------------------------------------------------ */
