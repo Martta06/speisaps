@@ -4,18 +4,14 @@ Gale et al. plans rover and on-foot traverses across Gale Crater using terrain, 
 
 ## Prerequisites
 
-Use Windows x64, 64-bit Python 3, and Node.js with npm. Run the commands below in PowerShell, starting from the repository root (the directory containing `server.py`).
+Use Windows x64, 64-bit Python 3, and Node.js (which includes `npm`). All required precompiled binaries (`martian_pathfinder.exe`, `mars_env.dll`), basemap textures, and 10 m/px elevation/radiation grids (`radiation_data/*.bin`) are already included in the repository.
 
-Before starting, check that the following runtime assets are present:
+If **Node.js (`npm`)** or **Python 3** are not installed on the machine, install them from PowerShell (or from <https://nodejs.org/> and <https://www.python.org/>), then **close and reopen the terminal**:
 
-| Path relative to the repository root | Purpose |
-| --- | --- |
-| `pathfinder/martian_pathfinder.exe` | Windows route planner |
-| `radiation_data/hirise_dem.bin` | Gale Crater elevation grid at $10\text{ m/px}$ ($55\text{ MB}$, **included in repo — works out of the box**) |
-| `Gale_DEM_SMG_1m.tif` *(optional)* | Full-resolution $1\text{ m/px}$ GeoTIFF ($5.4\text{ GB}$); if omitted, `hirise_dem.bin` is used automatically |
-| `radiation_data/mars_env.dll` | Native temperature and radiation model |
-| `radiation_data/` | Model inputs, including `hirise_dem.bin`, `hirise_meta.txt`, `gale_shielding_lut.bin`, and `rad_baseline_24h.bin` |
-| `gale-map/public/data/` | Basemap images, including `gale-terrain.png` and `gale-colour.png` |
+```powershell
+winget install OpenJS.NodeJS.LTS
+winget install Python.Python.3.12
+```
 
 ### Optional: Full-Resolution 1 m/px GeoTIFF (`5.4 GB`)
 
