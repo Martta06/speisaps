@@ -122,3 +122,44 @@ bool dem_get_slope_deg(const DemContext *ctx, int x, int y, double *out_slope_de
     if (out_slope_deg) *out_slope_deg = slope_rad * (180.0 / M_PI);
     return true;
 }
+
+bool dem_get_roughness(const DemContext *ctx, int x, int y, double *out_roughness) {
+    if (!dem_in_bounds(ctx, x - 1, y - 1) || !dem_in_bounds(ctx, x + 1, y + 1)) {
+        if (out_roughness) *out_roughness = 0.0;
+        return false;
+    }
+
+    float vals[9];
+    int count = 0;
+    double sum = 0.0;
+
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            float z;
+            if (dem_get_elevation(ctx, x + dx, y + dy, &z)) {
+                vals[count++] = z;
+                sum += (double)z;
+            }
+        }
+    }
+
+    if (count < 4) {
+        if (out_roughness) *out_roughness = 0.0;
+        return false;
+    }
+
+    double mean = sum / (double)count;
+    double var_sum = 0.0;
+    for (int i = 0; i < count; i++) {
+        double diff = (double)vals[i] - mean;
+        var_sum += diff * diff;
+    }
+    double sigma_z = sqrt(var_sum / (double)count);
+
+    /* Normalizar con sigma_max = 0.50 m (rugosidad severa) */
+    double norm_rough = sigma_z / 0.50;
+    if (norm_rough > 1.0) norm_rough = 1.0;
+
+    if (out_roughness) *out_roughness = norm_rough;
+    return true;
+}

@@ -48,4 +48,12 @@ void dem_pixel_to_geo(const DemContext *ctx, int x, int y, double *out_lon_deg, 
 /* Calcula la pendiente local en grados en el píxel (x, y) usando diferencias centrales */
 bool dem_get_slope_deg(const DemContext *ctx, int x, int y, double *out_slope_deg);
 
+/*
+ * dem_get_roughness — Calcula la micro-rugosidad superficial normalizada [0.0, 1.0]
+ * en el píxel (x, y) usando la desviación estándar de elevación en una ventana 3x3.
+ *
+ * sigma_max = 0.50 m (rugosidad de saturación en Gale Crater).
+ */
+bool dem_get_roughness(const DemContext *ctx, int x, int y, double *out_roughness);
+
 #endif /* DEM_READER_H */

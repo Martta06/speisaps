@@ -61,7 +61,50 @@
 
 ---
 
-## [2026-11-14 17:35] — Fase 3: Lector DEM BigTIFF, Algoritmo A* y Exportador GeoJSON
+## [2026-11-15 09:10] — Fase 6: Rugosidad Dinámica desde DEM y Depuración de Parámetros Estáticos
+### Cambios estructurales:
+1. **`dem_reader.h` / `dem_reader.c`**:
+   - Implementación de `dem_get_roughness()`: cálculo de la micro-rugosidad del terreno mediante la desviación típica local de elevación $\sigma_z$ en ventana $3\times 3$ píxeles, normalizada a $[0, 1]$ con $\sigma_{\max} = 0.50\text{ m}$.
+2. **Depuración y simplificación de la función de coste**:
+   - Eliminados todos los parámetros que dependían de valores fijos/aproximados: `rock_abundance`, `thermal_inertia`, `hazard_distance_m`, `cell_class`, `max_rock_height_m` y `wind_multiplier`.
+   - La función `edge_cost()` queda reducida estrictamente a magnitudes físicas continuas derivadas del terreno real y del tiempo:
+     $$C = \Delta s \cdot \left[ w_{\text{dist}} + w_{\text{slope}} \cdot f(\theta) + w_{\text{rough}} \cdot \text{roughness} + w_{\text{rad}} \cdot D \right] + C_{\text{elev}}(\Delta z)$$
+3. **Actualización de `pathfinder_astar.c`**:
+   - Evaluación en cada arista de la rugosidad real devuelta por `dem_get_roughness()`.
+4. **Verificación unitaria (`test_cost.c`)**:
+   - Batería de pruebas actualizada y verificada: **42 PASS, 0 FAIL**.
+
+### Archivos implementados y modificados:
+1. **`pathfinder_astar.h` / `pathfinder_astar.c`**:
+   - Incorporación del array dinámico `time_score` (duración acumulada en segundos desde el inicio de la marcha).
+   - Velocidad efectiva calculada por arista en función de la inclinación topográfica: ralentización física de avance en ascensos pronunciados.
+   - Cálculo del momento exacto de llegada al tramo: $T_{\text{llegada}} = T_{\text{start}} + \frac{t_{\text{acumulado}}}{3600}$.
+   - Consulta dinámica de la radiación en cada arista según la hora solar marciana incidente y el factor de apantallamiento topográfico local.
+2. **`geojson_export.h` / `geojson_export.c`**:
+   - Geometría 5D en las coordenadas de la ruta: `[lon, lat, elevacion, tiempo_transcurrido_s, tasa_radiacion_msv_dia]`.
+   - Propiedades añadidas en GeoJSON: `total_duration_s` y `total_radiation_dose_msv`.
+3. **`main_route.c`**:
+   - Parámetro CLI para definir la hora solar marciana de partida (ej. `9.0` para las 09:00 LMST).
+4. **Verificación unitaria (`test_cost.c`)**:
+   - Comprobación de avance temporal estrictamente monótono creciente.
+   - Validación del impacto diurno en travesías idénticas: las rutas nocturnas/vespertinas reflejan una mayor dosis acumulada que las matutinas debido a la variación de presión atmosférica.
+   - Total de pruebas en la suite: **54 PASS, 0 FAIL**.
+
+### Archivos implementados:
+1. **`radiation_model.h` / `radiation_model.c`**:
+   - `radiation_sky_view_factor`:
+     - Trazado de rayos discretos (*ray-marching*) en $M$ acimuts sobre el DEM.
+     - Obtiene el ángulo máximo de elevación del horizonte $\gamma(\phi_j)$ y el Sky-View Factor ($SVF \in [0, 1]$).
+     - Calcula el ángulo sólido visible: $\Omega = 2\pi \cdot SVF\text{ sr}$.
+     - Manejo de bordes robusto: truncamiento automático del rayo al límite del mapa ráster y asunción de horizonte plano exterior ($\gamma = 0^\circ$), evitando fallos de segmentación.
+   - `radiation_dose_rate`:
+     - Modulación temporal con marea térmica diurna de presión atmosférica (mínima dosis en el pico de presión matutino, máxima en la tarde).
+     - Apantallamiento topográfico directo ($D \propto SVF$).
+     - Modos de alerta para tormentas solares de partículas (SEP).
+2. **Actualización de la suite de pruebas (`test_cost.c`)**:
+   - 7 pruebas nuevas añadidas cubriendo proporcionalidad con SVF, modulación diurna, alerta SEP, muestreo de horizonte en Gale Crater y robustez extrema en los bordes del DEM.
+   - Total de pruebas: **49 PASS, 0 FAIL**.
+
 ### Archivos implementados:
 1. **`dem_reader.h` / `dem_reader.c`**:
    - Apertura del BigTIFF con `mmap(2)`.
