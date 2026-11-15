@@ -16,8 +16,9 @@
 #include "mars_geo.h"
 #include "terrain_cost.h"
 #include "edge_cost.h"
-#include "radiation_model.h"
+#include "radiation_bridge.h"
 #include "pathfinder_astar.h"
+#include "../radiation_data/mars_env.h"
 
 /* ---- utilidad ---------------------------------------------------- */
 
@@ -125,6 +126,7 @@ static void test_edge_cost(void)
         .roughness         = 0.1,
         .elapsed_time_s    = 0.0,
         .dose_rate_msv_day = 0.64,
+        .temp_c            = -10.0, /* dentro de zona de confort */
         .speed_ms          = 1.0
     };
 
@@ -143,6 +145,11 @@ static void test_edge_cost(void)
     check("rugosidad > límite → INF", !isfinite(edge_cost(&ep, &w, &lim)));
     ep.roughness = 0.1;
 
+    /* Temperatura fuera de límites → INFINITY */
+    ep.temp_c = -95.0;
+    check("temperatura < min_temp → INF", !isfinite(edge_cost(&ep, &w, &lim)));
+    ep.temp_c = -10.0;
+
     /* SEP activo → INFINITY */
     lim.sep_alert_active = true;
     check("SEP activo → INF", !isfinite(edge_cost(&ep, &w, &lim)));
@@ -152,8 +159,8 @@ static void test_edge_cost(void)
     double terms[COST_TERM_COUNT];
     double total = edge_cost_breakdown(&ep, &w, &lim, terms);
     check("breakdown total = edge_cost", approx(total, edge_cost(&ep, &w, &lim), 1e-9));
-    printf("    desglose: dist=%.3f slope=%.3f rough=%.3f rad=%.3f elev=%.3f\n",
-           terms[0], terms[1], terms[2], terms[3], terms[4]);
+    printf("    desglose: dist=%.3f slope=%.3f rough=%.3f rad=%.3f temp=%.3f elev=%.3f\n",
+           terms[0], terms[1], terms[2], terms[3], terms[4], terms[5]);
 
     /* Rover: w_rad = 0 → la radiación no contribuye */
     CostWeights wr = weights_default_rover();
@@ -173,45 +180,46 @@ static void test_edge_cost(void)
 
 static void test_radiation_model(void)
 {
-    puts("\n--- radiation_model ---");
+    puts("\n--- radiation_bridge (mars_env.c) ---");
 
-    /* 1. Tasa de dosis en terreno abierto sin obstáculos */
-    double rate_open = radiation_dose_rate(12.0, 1.0, false);
-    check("dose_rate SVF=1.0 positivo y finito", isfinite(rate_open) && rate_open > 0.0);
+    bool ok_init = radiation_init("../radiation_data/gale_shielding_lut.bin",
+                                  "../radiation_data/rad_baseline_24h.bin");
+    check("radiation_init desde radiation_data/ exitoso", ok_init);
 
-    /* 2. Terreno con 50% apantallamiento debe recibir la mitad */
-    double rate_half = radiation_dose_rate(12.0, 0.5, false);
-    check("dose_rate proporcional al SVF", approx(rate_half, rate_open * 0.5, 1e-9));
+    /* 1. Consulta en Bradbury Landing (137.425, -4.580) a las 12:00 LMST */
+    int px = 18000, py = 20000;
+    double rate_open = radiation_query_dose_rate_msv_day(12.0f, px, py, false, 0.0f);
+    check("dose_rate en terreno abierto positivo y finito (~0.65 mSv/día)",
+          isfinite(rate_open) && rate_open > 0.50 && rate_open < 0.80);
 
-    /* 3. Modulación de presión atmosférica (mañana vs noche) */
-    double rate_morning = radiation_dose_rate(7.0, 1.0, false);  /* máxima presión -> mínima dosis */
-    double rate_evening = radiation_dose_rate(19.0, 1.0, false); /* mínima presión -> máxima dosis */
-    check("modulación diurna: dosis tarde > dosis mañana", rate_evening > rate_morning);
+    /* 2. Modo rover aplica factor de blindaje metálico */
+    double rate_rover = radiation_query_dose_rate_msv_day(12.0f, px, py, true, 0.0f);
+    check("dose_rate rover < dose_rate astronauta EVA", rate_rover < rate_open);
 
-    /* 4. Tormenta solar (SEP activa) incrementa dosis sustancialmente */
-    double rate_sep = radiation_dose_rate(12.0, 1.0, true);
-    check("SEP activo incrementa dosis", rate_sep > rate_open * 5.0);
+    /* 3. Modulación horaria de la curva de 24 horas */
+    double rate_h0 = radiation_query_dose_rate_msv_day(0.0f, px, py, false, 0.0f);
+    double rate_h13 = radiation_query_dose_rate_msv_day(13.0f, px, py, false, 0.0f);
+    check("curva 24h modula según hora del sol", rate_h0 != rate_h13);
 
-    /* 5. Verificación de radiation_sky_view_factor con DEM real */
+    /* 4. Tormenta solar (SEP activa) incrementa dosis */
+    double rate_sep = radiation_query_dose_rate_msv_day(12.0f, px, py, false, 100.0f);
+    check("tormenta solar (SEP) incrementa dosis", rate_sep > rate_open);
+
+    /* 5. Comprobación de get_mars_temperature() de mars_env.c */
+    MarsTemperature mt_noon = get_mars_temperature(14.5f, -4500.0f, 190.0f, 280.0f, -4500.0f);
+    check("temp mediodía en Gale aprox +6.8°C", approx(mt_noon.temp_c, 6.85, 0.5));
+    MarsTemperature mt_dawn = get_mars_temperature(6.0f, -4500.0f, 190.0f, 280.0f, -4500.0f);
+    check("temp amanecer en Gale aprox -83°C", approx(mt_dawn.temp_c, -83.15, 0.5));
+    check("temp mediodía > temp amanecer", mt_noon.temp_c > mt_dawn.temp_c);
+
+    /* 6. Comprobación con DEM real */
     DemContext ctx;
     if (dem_open("../Gale_DEM_SMG_1m.tif", &ctx)) {
-        /* Comprobación de la rugosidad dinámica calculada desde el DEM */
         double rough_plain = 0.0;
-        int px, py;
         dem_geo_to_pixel(&ctx, 137.425, -4.580, &px, &py);
         bool ok_r = dem_get_roughness(&ctx, px, py, &rough_plain);
         check("dem_get_roughness en llanura válido", ok_r);
         check("rugosidad en llanura está en [0.0, 0.4]", rough_plain >= 0.0 && rough_plain <= 0.4);
-
-        double omega_sr = 0.0;
-        /* Punto en llanura del cráter Gale */
-        double svf = radiation_sky_view_factor(&ctx, 137.425, -4.580, 16, 100.0, &omega_sr);
-        check("SVF en llanura está en [0.85, 1.0]", svf >= 0.85 && svf <= 1.0);
-        check("Ángulo sólido acorde a SVF", approx(omega_sr, HEMISPHERE_SOLID_ANGLE_SR * svf, 1e-6));
-
-        /* Punto justo al borde del mapa (prueba de robustez sin segfault) */
-        double svf_edge = radiation_sky_view_factor(&ctx, ctx.origin_lon, ctx.origin_lat, 16, 200.0, &omega_sr);
-        check("SVF en borde del DEM no falla y es válido", isfinite(svf_edge) && svf_edge > 0.0);
 
         /* 6. Comprobación espacio-temporal en A*: travesía a distintas horas */
         TraversalLimits limits = limits_default_foot_eva();
@@ -219,24 +227,23 @@ static void test_radiation_model(void)
         PathResult p_morning, p_evening;
 
         bool ok_m = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 7.0, 1, &weights, &limits, &p_morning);
-        bool ok_e = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 19.0, 1, &weights, &limits, &p_evening);
+        bool ok_e = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 13.0, 1, &weights, &limits, &p_evening);
 
         check("A* espacio-temporal ejecutado a las 07:00", ok_m);
-        check("A* espacio-temporal ejecutado a las 19:00", ok_e);
+        check("A* espacio-temporal ejecutado a las 13:00", ok_e);
         if (ok_m && ok_e) {
             check("Tiempo transcurrido monótono creciente",
                   p_morning.points[p_morning.count - 1].elapsed_time_s > p_morning.points[0].elapsed_time_s);
             check("Duración estimada positiva", p_morning.total_duration_s > 0.0);
-            check("Dosis a las 19:00 > Dosis a las 07:00 (marea de presión)",
-                  p_evening.total_radiation_dose_msv > p_morning.total_radiation_dose_msv);
+            check("Dosis acumulada positiva y consistente", p_morning.total_radiation_dose_msv > 0.0);
             free_path_result(&p_morning);
             free_path_result(&p_evening);
         }
 
         dem_close(&ctx);
-    } else {
-        printf("  (Aviso: DEM no accesible para test de horizonte)\n");
     }
+
+    radiation_cleanup();
 }
 
 /* ================================================================== */

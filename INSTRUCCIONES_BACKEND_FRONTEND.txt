@@ -1,0 +1,226 @@
+================================================================================
+GUÍA DE INTEGRACIÓN BACKEND <-> FRONTEND (SPEISAPS / MARTIAN GOOGLE MAPS)
+================================================================================
+
+Este documento define la arquitectura de integración, los contratos de datos
+de las APIs REST y el uso de los módulos del backend para el desarrollo del
+frontend en gale-map.
+
+--------------------------------------------------------------------------------
+1. ARRANQUE RÁPIDO DEL ENTORNO
+--------------------------------------------------------------------------------
+
+El sistema consta de un servidor API local en Python (Flask) y la aplicación
+web en Vite/OpenLayers.
+
+Paso 1: Compilar el motor de rutas en C (si no está compilado)
+   cd pathfinder
+   make martian_pathfinder
+   cd ..
+
+Paso 2: Iniciar el servidor API backend
+   python3 server.py
+   (El servidor queda a la escucha en http://127.0.0.1:8000)
+
+Paso 3: Iniciar el servidor de desarrollo de Vite (Frontend)
+   cd gale-map
+   npm install
+   npm run dev
+
+Configuración de proxy:
+Vite ya incluye en vite.config.js la redirección de cualquier llamada a /api
+hacia http://127.0.0.1:8000. No se requiere configuración adicional de CORS.
+
+--------------------------------------------------------------------------------
+2. SISTEMA DE COORDENADAS Y LÍMITES GEOGRÁFICOS
+--------------------------------------------------------------------------------
+
+- Sistema de Referencia: Mars 2000 Sphere / IAU 2015 (ESRI:104905 / IAU_2015:49900)
+- Radio de Marte: R = 3,396,190 metros
+- Orden de coordenadas: [Longitud, Latitud] en grados decimales
+- Extensión válida del DEM en Cráter Gale (galeExtent):
+    Longitud mínima (Oeste):  137.122471132° E
+    Latitud mínima (Sur):     -4.925474312° S
+    Longitud máxima (Este):   137.729812907° E
+    Latitud máxima (Norte):   -4.248963057° N
+
+Cualquier punto fuera de estos límites devuelve un error HTTP 400.
+
+--------------------------------------------------------------------------------
+3. ENDPOINTS DISPONIBLES EN LA API (/api)
+--------------------------------------------------------------------------------
+
+A. CÁLCULO DE RUTAS ÓPTIMAS
+   Método: POST
+   Ruta:   /api/route
+   
+   Cuerpo de la petición (JSON):
+   {
+     "origin": [137.4250, -4.5800],       // [lon, lat] requerido
+     "destination": [137.4270, -4.5820],  // [lon, lat] requerido
+     "localHour": 9.5,                    // Hora solar marciana LMST (0.0 a 24.0, opcional, por defecto 9.0)
+     "mode": "rover",                     // "rover" o "eva" (opcional, por defecto "rover")
+     "stepMeters": 10                     // Resolución espacial: 10 para respuesta rápida (0.2s - 2s),
+                                          //                      1 para cálculo métrico táctico
+   }
+
+   Respuesta exitosa (HTTP 200):
+   {
+     "status": "ok",
+     "calculation_time_s": 0.0015,
+     "coordinates": [                     // Coordenadas 2D [lon, lat] directamente compatibles
+       [137.4250, -4.5800],               // con route.js (point.length === 2)
+       [137.4251, -4.5801]
+     ],
+     "full_coordinates": [                // Coordenadas completas 6D para telemetría
+       [137.4250, -4.5800, -4500.0, 0.0, 0.658, -35.9]
+       // Formato: [lon, lat, cota_m, tiempo_acumulado_s, tasa_radiacion_msv_dia, temperatura_c]
+     ],
+     "properties": {
+       "total_distance_m": 175.28,        // Distancia total en metros
+       "total_duration_s": 183.76,        // Duración estimada de viaje en segundos
+       "total_cost": 210.28,              // Coste total de navegación
+       "max_slope_deg": 3.90,             // Pendiente máxima encontrada en grados
+       "cumulative_elevation_gain_m": 1.84, // Desnivel positivo acumulado en metros
+       "total_radiation_dose_msv": 0.001189, // Dosis acumulada de radiación en mSv
+       "min_temp_c": -35.73,              // Temperatura mínima en la ruta (°C)
+       "max_temp_c": -35.05,              // Temperatura máxima en la ruta (°C)
+       "waypoints_count": 14,             // Número de vértices
+       "calculation_time_s": 0.0015,
+       "is_rover": 1,
+       "step_meters": 10
+     },
+     "geojson": { ... }                   // FeatureCollection GeoJSON estándar
+   }
+
+   Errores posibles:
+   - HTTP 400: Parámetros inválidos o coordenadas fuera del mapa.
+   - HTTP 422: Bloqueo de ruta (pendientes intransitables o radiación/temperatura extrema).
+   - HTTP 504: Tiempo de cálculo excedido.
+
+
+B. TELEMETRÍA DEL ROVER
+   Método: GET
+   Ruta:   /api/rover
+
+   Respuesta exitosa (HTTP 200):
+   {
+     "position": [137.389025, -4.646509],
+     "timestamp": "2026-11-15T09:17:27.220119+00:00",
+     "speed_ms": 0.85,
+     "heading_deg": 45.0,
+     "mode": "autonomous_drive"
+   }
+   (Directamente consumible por gale-map/src/rover.js)
+
+
+C. DETECCIÓN Y SEGUIMIENTO DE TORMENTAS DE POLVO
+   Método: GET
+   Ruta:   /api/storm
+
+   Respuesta exitosa (HTTP 200):
+   {
+     "center": [137.348077, -4.650000],
+     "diameterM": 8500.0,
+     "dangerLevel": 3,                    // Nivel de peligro de 1 a 5
+     "motion": "approaching",             // "approaching", "receding", "unknown"
+     "windSpeedMs": 24.5,
+     "simulated": true,
+     "provenance": "Mars Environmental Dynamics Analyzer (MEDA) Simulator"
+   }
+   (Directamente consumible por gale-map/src/storm.js)
+
+
+D. RECOMENDACIÓN DE CAMPAMENTO ("NECESITO ACAMPAR")
+   Método: POST
+   Ruta:   /api/camp
+
+   Cuerpo de la petición (JSON):
+   {
+     "position": [137.4250, -4.5800],     // Posición actual del explorador
+     "localHour": 14.0                    // Hora actual
+   }
+
+   Respuesta exitosa (HTTP 200):
+   {
+     "status": "ok",
+     "camp_found": true,
+     "camp_location": {
+       "coordinates": [137.4330, -4.5860],
+       "name": "Campamento de Refugio Alpha (Planicie Segura)",
+       "slope_deg": 2.1,
+       "roughness": 0.08,
+       "radiation_shielding": "Óptimo (depresión topográfica local)",
+       "suitability_score": 94.5
+     },
+     "route_to_camp": {
+       "coordinates": [ [137.4250, -4.5800], ... ], // Línea de ruta 2D lista para pintar
+       "distance_m": 619.65,
+       "duration_s": 647.42,
+       "radiation_dose_msv": 0.004924
+     }
+   }
+
+
+E. ESTADO DE SALUD DEL BACKEND
+   Método: GET
+   Ruta:   /api/health
+
+   Respuesta (HTTP 200):
+   {
+     "status": "ok",
+     "service": "martian_pathfinder_api",
+     "dem_loaded": "Gale_DEM_SMG_1m.tif",
+     "dem_exists": true,
+     "bin_exists": true
+   }
+
+--------------------------------------------------------------------------------
+4. USO DIRECTO POR LÍNEA DE COMANDOS (CLI)
+--------------------------------------------------------------------------------
+
+Si se desea calcular rutas o generar ficheros GeoJSON directamente sin pasar
+por el servidor web:
+
+Sintaxis:
+  cd pathfinder
+  ./martian_pathfinder <start_lon> <start_lat> <goal_lon> <goal_lat> [start_sol_hour] [is_rover] [step_meters] [out_geojson] [dem_file]
+
+Parámetros:
+  1. start_lon:      Longitud origen en grados decimales
+  2. start_lat:      Latitud origen en grados decimales
+  3. goal_lon:       Longitud destino en grados decimales
+  4. goal_lat:       Latitud destino en grados decimales
+  5. start_sol_hour: Hora solar marciana LMST de salida (por defecto: 9.0)
+  6. is_rover:       0 para astronauta a pie (EVA), 1 para vehículo Rover (por defecto: 0)
+  7. step_meters:    Paso de muestreo en metros: 10 (rápido) o 1 (táctico) (por defecto: 10)
+  8. out_geojson:    Ruta del archivo GeoJSON de salida (por defecto: route_output.geojson)
+  9. dem_file:       Ruta al DEM TIFF (por defecto: ../Gale_DEM_SMG_1m.tif)
+
+Ejemplo práctico de travesía rover de 25 km:
+  ./martian_pathfinder 137.360000 -4.380000 137.613800 -4.717412 9.0 1 10 outputs/route_rover_25km_10m.geojson ../Gale_DEM_SMG_1m.tif
+
+Ejemplo práctico de travesía EVA de 10 km:
+  ./martian_pathfinder 137.350000 -4.500000 137.469662 -4.619293 9.0 0 10 outputs/route_10km_10m.geojson ../Gale_DEM_SMG_1m.tif
+
+--------------------------------------------------------------------------------
+5. DETALLES A TENER EN CUENTA EN EL FRONTEND (GALE-MAP)
+--------------------------------------------------------------------------------
+
+1. Compatibilidad con route.js:
+   En gale-map/src/route.js, la validación de coordenadas exige puntos con longitud 2
+   (point.length === 2). Por este motivo, el campo "coordinates" del JSON devuelve
+   pares [lon, lat]. Si el frontend desea pintar gráficos de elevación, temperatura
+   o radiación, debe leer el campo complementario "full_coordinates" que contiene
+   las 6 dimensiones [lon, lat, elev, time, rad, temp].
+
+2. Activación de tormentas automáticas:
+   En gale-map/src/main.js, la línea:
+     const storms = addStormOverlay(map);
+   puede descomentarse para que la función refreshStorm() consulte periódicamente
+   el endpoint /api/storm y actualice el mapa.
+
+3. Tiempos de respuesta:
+   Con stepMeters = 10, los cálculos toman entre 0.002s (rutas cortas) y 2.2s
+   (travesías de 25 km), permitiendo interacción fluida en el navegador.
+================================================================================

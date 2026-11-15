@@ -21,6 +21,7 @@
  *       + w_slope  × slope_cost(θ, θ_max)
  *       + w_rough  × roughness_cost(roughness)
  *       + w_rad    × radiation_cost_per_meter(dose, speed)
+ *       + w_temp   × temperature_stress_cost(temp, min_t, max_t)
  *   ]
  *   + elevation_cost(dz, w_up, w_down)
  */
@@ -28,13 +29,14 @@ double edge_cost(const EdgeParams      *ep,
                  const CostWeights     *w,
                  const TraversalLimits *lim);
 
-#define COST_TERM_COUNT 5
+#define COST_TERM_COUNT 6
 
 #define COST_IDX_DIST  0
 #define COST_IDX_SLOPE 1
 #define COST_IDX_ROUGH 2
 #define COST_IDX_RAD   3
-#define COST_IDX_ELEV  4
+#define COST_IDX_TEMP  4
+#define COST_IDX_ELEV  5
 
 double edge_cost_breakdown(const EdgeParams      *ep,
                            const CostWeights     *w,
