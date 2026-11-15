@@ -1,17 +1,20 @@
-# plot_temperature_diurnal.py
+# plot_temp.py
+import os
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from matplotlib.collections import LineCollection
 import numpy as np
 
 
 def get_mars_temperature_py(
     t_lmst,
     elevation_m,
-    t_min_k=192.0,
-    t_max_k=260.0,
+    t_min_k=190.0,
+    t_max_k=280.0,
     base_elevation_m=-4500.0,
 ):
-    """Réplica exacta en Python del modelo térmico implementado en mars_env.c"""
-    t = t_lmst % 24.0
+    """Exact Python replica of the C thermal model in mars_env.c"""
+    t = np.asarray(t_lmst, dtype=float) % 24.0
     t_sunrise = 6.0
     t_sunset = 18.0
     thermal_lag_h = 2.5
@@ -25,12 +28,12 @@ def get_mars_temperature_py(
     day_mask = (t >= t_sunrise) & (t <= t_sunset)
     night_mask = ~day_mask
 
-    # Ciclo diurno (senoidal adaptado)
+    # Daytime cycle (asymmetric lagged sinusoid, peak at 14:30 LMST)
     normalized_cycle[day_mask] = np.sin(
         np.pi * (t[day_mask] - t_sunrise) / denom
     )
 
-    # Ciclo nocturno (decaída exponencial con inercia térmica)
+    # Nighttime cycle (exponential thermal inertia radiative cooling)
     dt_night = (t[night_mask] - t_sunset) % 24.0
     night_length = 24.0 - day_length
     exp_b = np.exp(-nocturnal_decay)
@@ -40,84 +43,149 @@ def get_mars_temperature_py(
         / (1.0 - exp_b)
     )
 
-    # Corrección de temperatura por altitud (lapse rate)
-    lapse_correction_k = -0.002 * (elevation_m - base_elevation_m)
+    # Dry adiabatic lapse rate correction (-2.5 K/km)
+    lapse_correction_k = -0.0025 * (elevation_m - base_elevation_m)
     temp_k = t_min_k + (t_max_k - t_min_k) * normalized_cycle + lapse_correction_k
     temp_c = temp_k - 273.15
     return temp_k, temp_c
 
 
-# Generar resolución fina para las 24 horas del Sol
-hours = np.linspace(0, 24, 300)
+# Extended 24-stop spectrum (Ice White -> Lavender -> Purple -> Blue -> Cyan -> Green -> Amber -> Red)
+SPECTRUM_24 = [
+    "#f8fafc", "#e9d5ff", "#c084fc", "#9333ea",
+    "#6d28d9", "#4f46e5", "#2563eb", "#0284c7",
+    "#06b6d4", "#0d9488", "#10b981", "#22c55e",
+    "#65a30d", "#a3e635", "#facc15", "#eab308",
+    "#f59e0b", "#f97316", "#ea580c", "#ef4444",
+    "#dc2626", "#b91c1c", "#991b1b", "#7f1d1d",
+]
+cmap = mcolors.LinearSegmentedColormap.from_list("mars_temp_spectrum", SPECTRUM_24, N=512)
+norm = mcolors.Normalize(vmin=-95.0, vmax=7.0)
 
-# Simular dos puntos: el fondo del cráter (-4500 m) y una colina más alta (-3200 m)
-_, temp_crater = get_mars_temperature_py(hours, elevation_m=-4500.0)
-_, temp_ridge = get_mars_temperature_py(hours, elevation_m=-3200.0)
+hours = np.linspace(0, 24, 600)
 
-# Configuración visual de la gráfica estilo NASA/Space
+# Hypsometric contour levels across Gale Crater
+contour_profiles = [
+    ("Crater Floor Landing Site (-4,500 m)", -4500.0, "-", 3.0),
+    ("Vera Rubin Ridge (-3,800 m)", -3800.0, "--", 2.0),
+    ("Aeolis Mons Flank (-2,200 m)", -2200.0, "-.", 1.8),
+    ("Mount Sharp Summit (+500 m)", 500.0, ":", 2.0),
+]
+
 plt.style.use("dark_background")
-plt.figure(figsize=(10, 5), dpi=300)
+fig, ax = plt.subplots(figsize=(12, 6.2), dpi=300)
+fig.patch.set_facecolor("#0b0f19")
+ax.set_facecolor("#0b0f19")
 
-# Sombrear las horas nocturnas
-plt.axvspan(0, 6, color="#1e293b", alpha=0.5, lw=0)
-plt.axvspan(18, 24, color="#1e293b", alpha=0.5, lw=0, label="Noche marciana")
+# Shade Martian night hours
+ax.axvspan(0, 6, color="#172033", alpha=0.55, lw=0)
+ax.axvspan(18, 24, color="#172033", alpha=0.55, lw=0, label="Martian Night (Radiative Cooling)")
 
-# Curvas de temperatura
-plt.plot(
+# Shade EVA Suit Thermal Limit (-80 °C) and Optimal Operating Band (-20 °C to 0 °C)
+ax.axhspan(-20, 0, color="#10b981", alpha=0.08, lw=0, label="Optimal EVA Thermal Window (-20 °C to 0 °C)")
+ax.axhline(-80.0, color="#c084fc", linestyle="--", lw=1.2, alpha=0.75, label="EVA Suit Minimum Limit (-80 °C)")
+
+# Plot multicolor temperature gradient curve for the Crater Floor (-4,500 m)
+_, temp_floor = get_mars_temperature_py(hours, elevation_m=-4500.0)
+_, temp_summit = get_mars_temperature_py(hours, elevation_m=500.0)
+
+# Soft gradient band between Crater Floor and Mount Sharp Summit
+ax.fill_between(
     hours,
-    temp_crater,
+    temp_summit,
+    temp_floor,
     color="#38bdf8",
-    lw=2.5,
-    label="Fondo del Cráter (-4.500 m)",
-)
-plt.plot(
-    hours,
-    temp_ridge,
-    color="#f43f5e",
-    lw=2.0,
-    linestyle="--",
-    label="Cresta / Colina (-3.200 m)",
+    alpha=0.10,
+    label="Gale Crater Elevation Thermal Span (-4,500 m to +500 m)",
 )
 
-# Estética y anotaciones
-plt.title(
-    "Evolución Térmica Diurna en Gale Crater (Modelo C & Python)",
-    fontsize=13,
-    pad=15,
-    color="white",
+points = np.array([hours, temp_floor]).T.reshape(-1, 1, 2)
+segments = np.concatenate([points[:-1], points[1:]], axis=1)
+lc = LineCollection(segments, cmap=cmap, norm=norm, linewidth=3.4, zorder=5)
+lc.set_array(temp_floor[:-1])
+ax.add_collection(lc)
+
+# Plot reference hypsometric elevation contours
+contour_colors = ["#ef4444", "#f59e0b", "#06b6d4", "#c084fc"]
+for (label, elev_m, ls, lw), col in zip(contour_profiles, contour_colors):
+    _, t_c = get_mars_temperature_py(hours, elevation_m=elev_m)
+    ax.plot(hours, t_c, linestyle=ls, linewidth=lw if elev_m != -4500.0 else 0.0, color=col, alpha=0.9, label=label)
+
+# Annotate diurnal extrema on the Crater Floor curve
+idx_min = int(np.argmin(temp_floor))
+idx_max = int(np.argmax(temp_floor))
+ax.scatter([hours[idx_min], hours[idx_max]], [temp_floor[idx_min], temp_floor[idx_max]],
+           color=["#e9d5ff", "#ef4444"], edgecolors="white", s=55, zorder=6)
+ax.annotate(
+    f"Dawn Minimum: {temp_floor[idx_min]:.1f} °C (06:00 LMST)",
+    xy=(hours[idx_min], temp_floor[idx_min]),
+    xytext=(hours[idx_min] + 0.8, temp_floor[idx_min] - 7.5),
+    color="#e9d5ff",
+    fontsize=9.5,
+    fontweight="bold",
+    arrowprops=dict(arrowstyle="->", color="#e9d5ff", lw=1.2),
+)
+ax.annotate(
+    f"Afternoon Thermal Peak: +{temp_floor[idx_max]:.1f} °C (14:30 LMST)",
+    xy=(hours[idx_max], temp_floor[idx_max]),
+    xytext=(hours[idx_max] + 1.2, temp_floor[idx_max] + 5.5),
+    color="#fca5a5",
+    fontsize=9.5,
+    fontweight="bold",
+    arrowprops=dict(arrowstyle="->", color="#fca5a5", lw=1.2),
+)
+
+# Add graduated colorbar on the right matching the frontend (-95 °C to +7 °C)
+sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+sm.set_array([])
+cbar = fig.colorbar(sm, ax=ax, pad=0.025, fraction=0.03)
+cbar.set_ticks([-95, -70, -45, -20, 7])
+cbar.set_ticklabels(["-95 °C", "-70 °C", "-45 °C", "-20 °C", "+7 °C"])
+cbar.set_label("Absolute Temperature Scale (°C)", color="#f8fafc", fontsize=10.5, fontweight="bold")
+cbar.ax.yaxis.set_tick_params(color="#cbd5e1", labelsize=9.5)
+cbar.outline.set_edgecolor("#334155")
+plt.setp(cbar.ax.get_yticklabels(), color="#e2e8f0", family="monospace")
+
+# Styling and axes in English
+ax.set_title(
+    "Gale Crater · Diurnal Surface Temperature & Hypsometric Elevation Contours",
+    fontsize=14,
+    pad=16,
+    color="#f8fafc",
     fontweight="bold",
 )
-plt.xlabel("Hora Local Solar Media (LMST)", fontsize=11, color="white")
-plt.ylabel("Temperatura (°C)", fontsize=11, color="white")
-plt.xlim(0, 24)
-plt.xticks(
-    [0, 3, 6, 9, 12, 15, 18, 21, 24],
-    [
-        "00:00",
-        "03:00",
-        "06:00 (Amanecer)",
-        "09:00",
-        "12:00 (Mediodía)",
-        "15:00",
-        "18:00 (Atardecer)",
-        "21:00",
-        "24:00",
-    ],
-    color="white",
-)
-plt.yticks(color="white")
-plt.grid(True, color="#374151", linestyle="--", alpha=0.4)
-plt.legend(facecolor="#111827", edgecolor="#374151", labelcolor="white", loc="upper left")
+ax.set_xlabel("Local Mean Solar Time (LMST · Martian Sol Hours)", fontsize=11, color="#e2e8f0", labelpad=8)
+ax.set_ylabel("Atmospheric Surface Temperature (°C)", fontsize=11, color="#e2e8f0")
+ax.set_xlim(0, 24)
+ax.set_ylim(-102, 20)
+ax.set_xticks([0, 3, 6, 9, 12, 15, 18, 21, 24])
+ax.set_xticklabels([
+    "00:00",
+    "03:00",
+    "06:00\n(Sunrise)",
+    "09:00",
+    "12:00\n(Noon)",
+    "15:00\n(Peak Lag)",
+    "18:00\n(Sunset)",
+    "21:00",
+    "24:00",
+], color="#cbd5e1", fontsize=9.5)
+ax.tick_params(axis="y", colors="#cbd5e1", labelsize=9.5)
+ax.grid(True, color="#334155", linestyle="--", alpha=0.45)
+for spine in ax.spines.values():
+    spine.set_edgecolor("#334155")
 
-# Fondo general corporativo oscuro
-plt.gca().set_facecolor("#0b0f19")
-plt.gcf().patch.set_facecolor("#0b0f19")
+ax.legend(
+    facecolor="#111827",
+    edgecolor="#334155",
+    labelcolor="#e2e8f0",
+    loc="upper left",
+    fontsize=8.3,
+    ncol=1,
+    framealpha=0.92,
+)
 
 plt.tight_layout()
-plt.savefig(
-    "mars_temperature_diurnal_curve.png",
-    facecolor=plt.gcf().get_facecolor(),
-    edgecolor="none",
-)
-print("¡Gráfica generada y guardada como 'mars_temperature_diurnal_curve.png'!")
-plt.show()
+out_file = os.path.join(os.path.dirname(__file__) or ".", "mars_temperature_diurnal_curve.png")
+plt.savefig(out_file, facecolor=fig.get_facecolor(), edgecolor="none", dpi=300)
+print(f"Saved temperature chart to '{out_file}'!")
