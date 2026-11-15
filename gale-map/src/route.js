@@ -55,6 +55,7 @@ export function addRoutePlanner(map, extent) {
     const status = document.getElementById('route-status');
     const submit = document.getElementById('find-route');
     const hour = document.getElementById('sol-hour');
+    const travelMode = document.getElementById('travel-mode');
     const source = new VectorSource({ wrapX: false });
 
   // Above the environmental overlay, which uses zIndex 5.
@@ -175,6 +176,11 @@ export function addRoutePlanner(map, extent) {
         }
     });
 
+    travelMode.addEventListener('change', () => {
+        clearRoute();
+        status.textContent = 'Travel mode changed. Select Find route to recalculate.';
+    });
+
     hour.addEventListener('input', () => {
         clearRoute();
         status.textContent = 'Departure time updated. Select Find route to recalculate.';
@@ -208,11 +214,11 @@ export function addRoutePlanner(map, extent) {
                 headers: { 'Content-Type': 'application/json' },
                 signal: controller.signal,
                 body: JSON.stringify({
-                    crs: 'ESRI:104905',
                     origin,
                     destination,
-                    sol: 1,
                     localHour: Number(hour.value),
+                    mode: travelMode.value,
+                    stepMeters: 20,
                 }),
             });
 

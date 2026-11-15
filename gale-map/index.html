@@ -89,6 +89,11 @@
               <label>Latitude <input id="destination-lat" type="number" step="any" required></label>
               <button type="button" id="pick-destination">Pick on map</button>
             </fieldset>
+            <label for="travel-mode">Travel mode</label>
+            <select id="travel-mode" name="mode">
+              <option value="rover" selected>Rover</option>
+              <option value="eva">On foot (EVA)</option>
+            </select>
             <button type="submit" id="find-route">Find route</button>
             <small id="route-status" role="status"></small>
           </form>
