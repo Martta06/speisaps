@@ -1,87 +1,129 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Gale Navigator</title>
-  </head>
-
-  <body>
-    <header>
-    <strong>Gale Navigator</strong>
-    <label for="map-style">Map style</label>
-    <select id="map-style">
-      <option value="relief" selected>Shaded relief</option>
-      <option value="elevation">Elevation colors</option>
-    </select>
-    <span id="status">Loading Gale Crater terrain…</span>
-    </header>
-
-    <div id="map"></div>
-
-    <section id="environment-panel" aria-labelledby="environment-title">
-      <strong id="environment-title">Environment</strong>
-
-      <label for="environment-metric">Risk layer</label>
-      <select id="environment-metric">
-        <option value="off">Off</option>
-        <option value="temperature">Temperature</option>
-        <option value="radiation">Radiation</option>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gale Navigator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Rajdhani:wght@500;600;700&display=swap"
+        rel="stylesheet">
+</head>
+<body>
+  <header class="topbar">
+    <div class="mission-name">
+      <strong>Gale Navigator</strong>
+      <span>Gale Crater / Sol 01</span>
+    </div>
+    <label class="map-style">Map style
+      <select id="map-style">
+        <option value="relief">Shaded relief</option>
+        <option value="elevation">Elevation colors</option>
       </select>
+    </label>
+    <span id="status" role="status">Loading terrain…</span>
+  </header>
 
-      <label for="sol-hour">
-        Local solar time · <output id="sol-hour-label" for="sol-hour">12:00</output>
-      </label>
-      <input id="sol-hour" type="range" min="0" max="23" step="1" value="12">
+  <main class="workspace">
+    <div id="map" aria-label="Interactive Gale Crater map"></div>
 
-      <div class="risk-legend" aria-label="Risk levels">
-        <span><i class="risk-low"></i>Low</span>
-        <span><i class="risk-moderate"></i>Moderate</span>
-        <span><i class="risk-high"></i>High</span>
-      </div>
+    <div class="console-grid">
+      <aside class="wing left-wing" id="environment-panel">
+        <section class="module">
+          <h2 id="environment-title">Environment</h2>
+          <label for="environment-metric">Risk layer</label>
+          <select id="environment-metric">
+            <option value="off">Off</option>
+            <option value="temperature">Temperature</option>
+            <option value="radiation">Radiation</option>
+          </select>
 
-      <small id="environment-status" role="status">Layer off</small>
-      <button id="start-storm" type="button">Simulate dust storm</button>
-      <button id="stop-storm" type="button">Clear demo storm</button>
-      <button id="solar-demo" type="button">Simulate solar event</button>
-      <small id="rover-status" role="status">Waiting for rover position…</small>
-    </section>
+          <label class="instrument-row" for="sol-hour">
+            Local solar time <output id="sol-hour-label" for="sol-hour">12:00</output>
+          </label>
+          <input id="sol-hour" type="range" min="0" max="23" step="1" value="12">
+
+          <div class="risk-legend" aria-label="Risk levels">
+            <span class="risk-low">Low</span>
+            <span class="risk-moderate">Moderate</span>
+            <span class="risk-high">High</span>
+          </div>
+          <small id="environment-status" role="status">Layer off</small>
+        </section>
+
+        <section class="module">
+          <h2>Event simulator</h2>
+          <button id="start-storm" type="button">Simulate dust storm</button>
+          <button id="stop-storm" type="button">Clear demo storm</button>
+          <button id="solar-demo" type="button">Simulate solar event</button>
+        </section>
+
+        <figure class="module camera">
+          <h2>Navigation camera</h2>
+          <div class="camera-image">
+            <img src="./data/navcam.png"
+                 alt="Curiosity navigation camera view of Gale Crater">
+            <svg viewBox="0 0 200 100" aria-hidden="true">
+              <path d="M78 50h14m16 0h14M100 28v14m0 16v14"/>
+              <circle cx="100" cy="50" r="3"/>
+            </svg>
+          </div>
+          <figcaption>ARCHIVE · SOL 4102<br>NASA / JPL-Caltech</figcaption>
+        </figure>
+      </aside>
+
+      <div class="map-frame" aria-hidden="true"></div>
+
+      <aside class="wing right-wing">
+        <details class="module" id="route-panel" open>
+          <summary>Route planner</summary>
+          <form id="route-form">
+            <fieldset>
+              <legend>A / Origin</legend>
+              <label>Longitude <input id="origin-lon" type="number" step="any" required></label>
+              <label>Latitude <input id="origin-lat" type="number" step="any" required></label>
+              <button type="button" id="pick-origin">Pick on map</button>
+            </fieldset>
+            <fieldset>
+              <legend>B / Destination</legend>
+              <label>Longitude <input id="destination-lon" type="number" step="any" required></label>
+              <label>Latitude <input id="destination-lat" type="number" step="any" required></label>
+              <button type="button" id="pick-destination">Pick on map</button>
+            </fieldset>
+            <button type="submit" id="find-route">Find route</button>
+            <small id="route-status" role="status"></small>
+          </form>
+        </details>
+
+        <section class="module">
+          <h2>Rover telemetry</h2>
+          <small id="rover-status" role="status">Waiting for rover position…</small>
+          <dl class="readings">
+            <div><dt>Pitch / roll</dt><dd>— / —</dd></div>
+            <div><dt>Wheel slip</dt><dd>—</dd></div>
+            <div><dt>Power draw</dt><dd>— W</dd></div>
+          </dl>
+        </section>
+
+        <section class="module">
+          <h2>Mission log</h2>
+          <ol id="mission-log"></ol>
+        </section>
+      </aside>
+    </div>
 
     <div id="mission-alerts">
-      <aside id="solar-alert" role="status" aria-live="polite" hidden>
+      <aside id="solar-alert" role="status" hidden>
         <strong id="solar-title"></strong>
         <span id="solar-details"></span>
       </aside>
-
-      <aside id="storm-alert" role="status" aria-live="polite" hidden>
+      <aside id="storm-alert" role="status" hidden>
         <strong id="storm-title"></strong>
         <span id="storm-details"></span>
       </aside>
     </div>
+  </main>
 
-    <details id="route-panel" open>
-      <summary>Route planner</summary>
-
-      <form id="route-form">
-        <fieldset>
-          <legend>A · Origin</legend>
-          <label>Longitude <input id="origin-lon" type="number" step="any" required></label>
-          <label>Latitude <input id="origin-lat" type="number" step="any" required></label>
-          <button type="button" id="pick-origin">Pick on map</button>
-        </fieldset>
-
-        <fieldset>
-          <legend>B · Destination</legend>
-          <label>Longitude <input id="destination-lon" type="number" step="any" required></label>
-          <label>Latitude <input id="destination-lat" type="number" step="any" required></label>
-          <button type="button" id="pick-destination">Pick on map</button>
-        </fieldset>
-
-        <button type="submit" id="find-route">Find route</button>
-        <small id="route-status" role="status">Enter coordinates or pick a point on the map.</small>
-      </form>
-    </details>
-
-    <script type="module" src="/src/main.js"></script>
-  </body>
+  <script type="module" src="/src/main.js"></script>
+</body>
 </html>

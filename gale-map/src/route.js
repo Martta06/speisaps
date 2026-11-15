@@ -62,7 +62,9 @@ export function addRoutePlanner(map, extent) {
         view.cancelAnimations();
         view.fit(source.getExtent(), {
             // OpenLayers order: top, right, bottom, left.
-            padding: [gap, right, gap, left],
+            padding: window.matchMedia('(max-width: 800px)').matches
+                ? [gap, gap, gap, gap]
+                : [gap, right, gap, left],
             duration: 500,
             maxZoom: 19,
         });

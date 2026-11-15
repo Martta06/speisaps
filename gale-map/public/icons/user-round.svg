@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+        width="32" height="32" viewBox="0 0 32 32">
+<!-- Marker background -->
+    <circle cx="16" cy="16" r="15"
+        fill="#71E7EF" stroke="#07121A" stroke-width="2"/>
+
+<!-- Crew icon -->
+    <g transform="translate(4 4)" fill="none"
+        stroke="#07121A" stroke-width="2.4"
+        stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="8" r="5"/>
+        <path d="M20 21a8 8 0 0 0-16 0"/>
+    </g>
+</svg>

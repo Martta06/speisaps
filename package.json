@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@astrouxds/astro-web-components": "^8.0.1"
+  }
+}

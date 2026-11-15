@@ -1,3 +1,4 @@
+import '@astrouxds/astro-web-components/dist/astro-web-components/astro-web-components.css';
 import 'ol/ol.css';
 import './style.css';
 
@@ -33,7 +34,7 @@ const terrain = new ImageStatic({
 const status = document.getElementById('status');
 
 terrain.on('imageloadend', () => {
-  status.textContent = 'Drag to explore · Scroll to zoom';
+  status.textContent = '';
 });
 
 terrain.on('imageloaderror', () => {
@@ -78,7 +79,7 @@ styleSelector.addEventListener('change', () => {
 
   status.textContent = showElevation
     ? (elevationReady ? 'Purple: lower terrain · Yellow: higher terrain' : 'Loading elevation colors…')
-    : 'Drag to explore · Scroll to zoom';
+    : '';
 });
 
 elevationSource.on('imageloadend', () => {
@@ -124,18 +125,13 @@ async function refreshStorm() {
     storms.updateStorm(data);
   } catch (error) {
     if (stopped) return;
-
-    console.error(error);
+    console.warn('Storm updates unavailable', error);
 
     const alert = document.getElementById('storm-alert');
-    alert.hidden = false;
-    alert.style.setProperty('--storm-color', '#aeb7b2');
-
-    document.getElementById('storm-title').textContent =
-      'Storm updates unavailable';
-
-    document.getElementById('storm-details').textContent =
-      'Any storm shown is the last received position.';
+    if (!alert.hidden) {
+        document.getElementById('storm-details').textContent =
+          'Signal lost · Showing last known storm position.';
+    }
   } finally {
     if (!stopped) {
       stormTimer = setTimeout(refreshStorm, 2000);
@@ -155,3 +151,26 @@ if (import.meta.hot) {
 
 addRover(map, { demo: true });
 addSolarAlert();
+
+
+const missionLog = document.getElementById('mission-log');
+
+function logMissionEvent(message) {
+  const entry = document.createElement('li');
+  const time = new Date().toISOString().slice(11, 19);
+  entry.textContent = `${time}Z · ${message}`;
+  missionLog.prepend(entry);
+  if (missionLog.children.length > 5) missionLog.lastElementChild.remove();
+}
+
+for (const id of ['route-status', 'solar-title', 'storm-title']) {
+  const element = document.getElementById(id);
+  let previous = '';
+  new MutationObserver(() => {
+    const message = element.textContent.trim();
+    if (message && message !== previous) logMissionEvent(message);
+    previous = message;
+  }).observe(element, { childList: true, subtree: true, characterData: true });
+}
+
+logMissionEvent('Map console initialized');

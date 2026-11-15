@@ -3,6 +3,7 @@ import Point from 'ol/geom/Point.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import { Circle, Fill, Stroke, Style, Text } from 'ol/style.js';
+import Icon from 'ol/style/Icon.js';
 
 const UPDATE_MS = 2000;
 
@@ -10,20 +11,32 @@ export function addRover(map, { demo = true } = {}) {
     const status = document.getElementById('rover-status');
     const marker = new Feature();
 
-    marker.setStyle(new Style({
-        image: new Circle({
-            radius: 8,
-            fill: new Fill({ color: '#54dbff' }),
-            stroke: new Stroke({ color: '#14242b', width: 3 }),
-        }),
-        text: new Text({
-            text: 'Rover',
-            offsetY: -19,
-            font: 'bold 13px system-ui',
-            fill: new Fill({ color: '#ffffff' }),
-            stroke: new Stroke({ color: '#14242b', width: 4 }),
-        }),
-    }));
+    const icon = new Icon({
+        src: `${import.meta.env.BASE_URL}icons/user-round.svg`,
+        anchor: [0.5, 0.5],
+    });
+
+    const label = new Text({
+        text: 'Rover',
+        font: '600 11px system-ui',
+        fill: new Fill({ color: '#ffffff' }),
+        stroke: new Stroke({ color: '#07121a', width: 3 }),
+    });
+
+    const roverStyle = new Style({ image: icon, text: label });
+
+// Use the initial overview as the reference zoom.
+    const overviewResolution = map.getView().getResolution();
+
+    marker.setStyle((_feature, resolution) => {
+        const zoomFactor = Math.sqrt(overviewResolution / resolution);
+        const sizePx = Math.max(14, Math.min(24, 16 * zoomFactor));
+
+        icon.setScale(sizePx / 32); // The SVG is 32 px wide.
+        label.setOffsetY(-(sizePx / 2 + 8));
+
+        return roverStyle;
+    });
 
     const layer = new VectorLayer({
         source: new VectorSource({ features: [marker], wrapX: false }),
