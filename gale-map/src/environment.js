@@ -7,13 +7,33 @@ import { Fill, Style } from 'ol/style.js';
 const layers = {
   temperature: {
     unit: '°C',
-    colors: ['#476bc2', '#63a5d5', '#a4dacf', '#f4bd72', '#df6553'],
+    colors: [
+      '#2b4c8c', '#3b6db3', '#4f91c8', '#68b0cc',
+      '#86c9c3', '#a8d9b4', '#cce29f', '#ead988',
+      '#f5be70', '#f29b5b', '#e6754d', '#d14b45',
+    ],
   },
   radiation: {
     unit: 'µSv/h',
-    colors: ['#5084a1', '#66b8ae', '#d4ce78', '#ec9951', '#da5451'],
+    colors: [
+      '#35627d', '#457c96', '#5697a8', '#66b2ae',
+      '#84c4a3', '#abcf92', '#d2d17c', '#e8be68',
+      '#f09f56', '#ea7c4d', '#df5a4c', '#c93843',
+    ],
   },
 };
+
+// Búsqueda binaria sobre la CDF empírica para obtener el cuantil [0, 1]
+function empiricalCdf(sortedValues, val) {
+  let lo = 0;
+  let hi = sortedValues.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sortedValues[mid] < val) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo / Math.max(1, sortedValues.length - 1);
+}
 
 export function addEnvironmentPanel(map) {
   const metric = document.getElementById('environment-metric');
@@ -50,10 +70,16 @@ export function addEnvironmentPanel(map) {
       return;
     }
 
-    const min = Math.min(...valid);
-    const max = Math.max(...valid);
+    const sorted = [...valid].sort((a, b) => a - b);
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
+    // Percentiles P2 y P98 para evitar que valores extremos aislados sesguen la escala
+    const p02 = sorted[Math.floor(sorted.length * 0.02)];
+    const p98 = sorted[Math.floor(sorted.length * 0.98)];
+    const robustSpan = Math.max(1e-6, p98 - p02);
+
     const styles = colors.map(color =>
-      new Style({ fill: new Fill({ color: `${color}99` }) })
+      new Style({ fill: new Fill({ color: `${color}88` }) })
     );
 
     const [west, south, east, north] = extent;
@@ -78,8 +104,17 @@ export function addEnvironmentPanel(map) {
         unit,
       });
 
-      const fraction = max === min ? 0.5 : (value - min) / (max - min);
-      const index = Math.min(colors.length - 1, Math.floor(fraction * colors.length));
+      // Mapeo híbrido no lineal (75% Ecualización por Cuantiles CDF + 25% Escala Gamma sobre P2..P98):
+      // concentra las bandas de color (curvas de nivel) donde hay mayor densidad y variabilidad de alturas.
+      let fraction = 0.5;
+      if (max > min) {
+        const cdfRank = empiricalCdf(sorted, value);
+        const clamped = Math.min(p98, Math.max(p02, value));
+        const gammaNorm = Math.pow((clamped - p02) / robustSpan, 0.65);
+        fraction = 0.75 * cdfRank + 0.25 * gammaNorm;
+      }
+
+      const index = Math.min(colors.length - 1, Math.max(0, Math.floor(fraction * colors.length)));
       cell.setStyle(styles[index]);
       cells.push(cell);
     }
