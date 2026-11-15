@@ -218,8 +218,8 @@ static void test_radiation_model(void)
         CostWeights weights = weights_default_foot_eva();
         PathResult p_morning, p_evening;
 
-        bool ok_m = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 7.0, &weights, &limits, &p_morning);
-        bool ok_e = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 19.0, &weights, &limits, &p_evening);
+        bool ok_m = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 7.0, 1, &weights, &limits, &p_morning);
+        bool ok_e = astar_find_path(&ctx, 137.425, -4.580, 137.426, -4.581, 19.0, 1, &weights, &limits, &p_evening);
 
         check("A* espacio-temporal ejecutado a las 07:00", ok_m);
         check("A* espacio-temporal ejecutado a las 19:00", ok_e);

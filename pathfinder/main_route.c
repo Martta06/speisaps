@@ -22,6 +22,8 @@ int main(int argc, char **argv) {
     double goal_lon  = 137.4270;
     double goal_lat  = -4.5820;
     double start_sol_hour = 9.0; /* 09:00 LMST por defecto */
+    int is_rover = 0;            /* 0 = EVA a pie, 1 = Rover */
+    int step_meters = 10;        /* 10 m por defecto para alta velocidad, 1 m para táctico */
 
     if (argc >= 5) {
         start_lon = atof(argv[1]);
@@ -33,14 +35,22 @@ int main(int argc, char **argv) {
         start_sol_hour = atof(argv[5]);
     }
     if (argc >= 7) {
-        out_geojson = argv[6];
+        is_rover = atoi(argv[6]);
     }
     if (argc >= 8) {
-        dem_file = argv[7];
+        step_meters = atoi(argv[7]);
+    }
+    if (argc >= 9) {
+        out_geojson = argv[8];
+    }
+    if (argc >= 10) {
+        dem_file = argv[9];
     }
 
     printf("Iniciando Martian Pathfinder (Gale Crater)...\n");
     printf("DEM: %s\n", dem_file);
+    printf("Modo:          %s\n", is_rover ? "ROVER (Curiosity/Perseverance)" : "FOOT EVA (Astronauta)");
+    printf("Resolución:    1 punto cada %d metros\n", step_meters);
     printf("Origen:        Lon=%.6f, Lat=%.6f\n", start_lon, start_lat);
     printf("Destino:       Lon=%.6f, Lat=%.6f\n", goal_lon,  goal_lat);
     printf("Hora partida:  %.2f LMST (Sol hour)\n", start_sol_hour);
@@ -51,12 +61,12 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    TraversalLimits limits = limits_default_foot_eva();
-    CostWeights weights = weights_default_foot_eva();
+    TraversalLimits limits = is_rover ? limits_default_rover() : limits_default_foot_eva();
+    CostWeights weights    = is_rover ? weights_default_rover() : weights_default_foot_eva();
 
     PathResult path;
     printf("Buscando ruta óptima con A* espacio-temporal...\n");
-    if (!astar_find_path(&ctx, start_lon, start_lat, goal_lon, goal_lat, start_sol_hour, &weights, &limits, &path)) {
+    if (!astar_find_path(&ctx, start_lon, start_lat, goal_lon, goal_lat, start_sol_hour, step_meters, &weights, &limits, &path)) {
         fprintf(stderr, "No se encontró una ruta viable cumpliendo las restricciones marcianas.\n");
         dem_close(&ctx);
         return 2;

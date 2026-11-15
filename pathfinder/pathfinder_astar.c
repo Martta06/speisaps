@@ -104,11 +104,13 @@ bool astar_find_path(const DemContext       *ctx,
                      double                  goal_lon,
                      double                  goal_lat,
                      double                  start_sol_hour,
+                     int                     step_meters,
                      const CostWeights      *weights,
                      const TraversalLimits  *limits,
                      PathResult             *out_path)
 {
     if (!ctx || !weights || !limits || !out_path) return false;
+    if (step_meters < 1) step_meters = 1;
 
     int sx, sy, gx, gy;
     dem_geo_to_pixel(ctx, start_lon, start_lat, &sx, &sy);
@@ -119,19 +121,33 @@ bool astar_find_path(const DemContext       *ctx,
         return false;
     }
 
-    /* Definir caja englobante (bounding box) local con margen */
-    int min_x = (sx < gx ? sx : gx) - 200;
-    int max_x = (sx > gx ? sx : gx) + 200;
-    int min_y = (sy < gy ? sy : gy) - 200;
-    int max_y = (sy > gy ? sy : gy) + 200;
+    /* Alinear coordenadas a la rejilla de paso step_meters */
+    int step = step_meters;
+    sx = (sx / step) * step;
+    sy = (sy / step) * step;
+    gx = (gx / step) * step;
+    gy = (gy / step) * step;
+
+    /* Definir caja englobante (bounding box) local con margen en píxeles */
+    int margin_px = 20 * step;
+    int min_x = (sx < gx ? sx : gx) - margin_px;
+    int max_x = (sx > gx ? sx : gx) + margin_px;
+    int min_y = (sy < gy ? sy : gy) - margin_px;
+    int max_y = (sy > gy ? sy : gy) + margin_px;
 
     if (min_x < 0) min_x = 0;
     if (min_y < 0) min_y = 0;
     if (max_x >= (int)ctx->width)  max_x = (int)ctx->width - 1;
     if (max_y >= (int)ctx->height) max_y = (int)ctx->height - 1;
 
-    int grid_w = max_x - min_x + 1;
-    int grid_h = max_y - min_y + 1;
+    /* Alinear límites a múltiplos del paso */
+    min_x = (min_x / step) * step;
+    min_y = (min_y / step) * step;
+    max_x = (max_x / step) * step;
+    max_y = (max_y / step) * step;
+
+    int grid_w = (max_x - min_x) / step + 1;
+    int grid_h = (max_y - min_y) / step + 1;
     size_t total_cells = (size_t)grid_w * grid_h;
 
     double *g_score = (double*)malloc(total_cells * sizeof(double));
@@ -147,9 +163,9 @@ bool astar_find_path(const DemContext       *ctx,
         came_from_y[i] = -1;
     }
 
-    #define CELL_IDX(x, y) (((y) - min_y) * grid_w + ((x) - min_x))
+    #define CELL_IDX(x, y) ((((y) - min_y) / step) * grid_w + (((x) - min_x) / step))
 
-    MinHeap *open_set = heap_create(4096);
+    MinHeap *open_set = heap_create(8192);
 
     size_t start_idx = CELL_IDX(sx, sy);
     g_score[start_idx] = 0.0;
@@ -177,8 +193,8 @@ bool astar_find_path(const DemContext       *ctx,
         double t_curr = time_score[curr_idx];
 
         for (int d = 0; d < 8; d++) {
-            int nx = current.x + DX[d];
-            int ny = current.y + DY[d];
+            int nx = current.x + DX[d] * step;
+            int ny = current.y + DY[d] * step;
 
             if (nx < min_x || nx > max_x || ny < min_y || ny > max_y) continue;
 
@@ -188,7 +204,7 @@ bool astar_find_path(const DemContext       *ctx,
             float z_next;
             if (!dem_get_elevation(ctx, nx, ny, &z_next)) continue;
 
-            double step_dist = DIST_STEP[d]; /* 1.0 o ~1.414 metros */
+            double step_dist = DIST_STEP[d] * (double)step; /* ej. 10.0 m o 14.14 m */
             double dz = (double)(z_next - z_curr);
             double slope = mars_slope_deg(dz, step_dist);
 

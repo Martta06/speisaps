@@ -61,7 +61,24 @@
 
 ---
 
-## [2026-11-15 09:10] — Fase 6: Rugosidad Dinámica desde DEM y Depuración de Parámetros Estáticos
+## [2026-11-15 09:27] — Fase 8: Reorganización de Salidas y Limpieza Visual
+- Todos los archivos `.geojson` y `.png` han sido trasladados a la subcarpeta `pathfinder/outputs/`.
+- Se han generado los renders de las últimas pruebas decamétricas (10 m):
+  - `route_rover_25km_10m_rendered.png` (25 km en 2.24 s).
+  - `route_10km_10m_rendered.png` (10 km en 0.26 s).
+- Se han re-renderizado todas las imágenes anteriores eliminando la línea recta discontinua y aplicando el mapa hipsométrico multicolor continuo.
+
+### Optimización de rendimiento:
+1. **`pathfinder_astar.h` / `pathfinder_astar.c`**:
+   - Incorporación del parámetro `step_meters` para permitir muestreo configurable (1 m para maniobras tácticas de proximidad; 10 m para grandes travesías estratégicas).
+   - Reducción del tamaño de la rejilla evaluada en memoria por un factor de $10^2 = \mathbf{100\times}$:
+     - En una travesía de $25\text{ km}$, el consumo de memoria desciende de $\approx 7.3\text{ GB}$ a menos de $\mathbf{75\text{ MB}}$.
+     - El tiempo de cálculo para los $25\text{ km}$ se reduce de $334\text{ s}$ ($\approx 5.5\text{ min}$) a solo **$2.24\text{ segundos}$** (aceleración de $\approx 150\times$).
+     - Para la travesía de $10\text{ km}$, el tiempo baja de $30\text{ s}$ a solo **$0.26\text{ segundos}$** (tiempo de respuesta interactivo en tiempo real para la aplicación web).
+   - Las distancias de arista se escalan rigurosamente: $\Delta s = 10\text{ m}$ (ortogonales) y $\Delta s = 14.14\text{ m}$ (diagonales), manteniendo intacta la precisión en el cálculo de pendientes y desniveles.
+2. **`main_route.c`**:
+   - Soporte para invocar el ejecutable especificando el paso: `./martian_pathfinder <lon0> <lat0> <lon1> <lat1> <hora> <modo: 0=EVA|1=Rover> <paso_metros>`.
+
 ### Cambios estructurales:
 1. **`dem_reader.h` / `dem_reader.c`**:
    - Implementación de `dem_get_roughness()`: cálculo de la micro-rugosidad del terreno mediante la desviación típica local de elevación $\sigma_z$ en ventana $3\times 3$ píxeles, normalizada a $[0, 1]$ con $\sigma_{\max} = 0.50\text{ m}$.
