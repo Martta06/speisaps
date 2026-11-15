@@ -20,8 +20,7 @@ winget install Python.Python.3.12
 If you want to install the full-resolution $1\text{ m/px}$ NASA/JPL HiRISE-CTX-HRSC merged GeoTIFF (`Gale_DEM_SMG_1m.tif`, `5.4 GB`, excluded from GitHub due to file size limits):
 
 1. **Download `Gale_DEM_SMG_1m.tif` from NASA Mars Trek:**
-   - **Direct GeoTIFF Mirror (`5.4 GB`):** <https://planetarymaps.usgs.gov/mosaic/Mars/MSL/MSL_Gale_DEM_Mosaic_1m_v3.tif>
-   - **NASA Mars Trek Portal:** <https://trek.nasa.gov/mars/> *(Data $\rightarrow$ Search `"Gale_DEM_SMG_1m"` / `"Gale Crater Merged DEM 1m"` $\rightarrow$ Download full GeoTIFF)*
+   - Open [**NASA Mars Trek**](https://trek.nasa.gov/mars/#v=0.1&x=0&y=0&z=1&p=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A104905&d=&locale=&b=mars&e=-295.6640569848107%2C-174.19921550056327%2C295.6640569848107%2C174.19921550056327&sfz=&w=) $\rightarrow$ **Data** $\rightarrow$ **Search** $\rightarrow$ **(MRO HiRISE)`Gale Crater DEM`** $\rightarrow$ click **Download** (`Gale_DEM_SMG_1m.tif`, `5.4 GB`).
 2. **Place the file** in the repository root as `Gale_DEM_SMG_1m.tif`. `server.py` will detect it automatically on startup.
 
 ## Start the application
