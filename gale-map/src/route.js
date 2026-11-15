@@ -27,6 +27,28 @@ const routeStyle = [
     new Style({ stroke: new Stroke({ color: '#66edff', width: 4 }) }),
 ];
 
+function readRoutePoints(data) {
+    if (data?.type === 'FeatureCollection') {
+        const lines = data.features.filter(
+            feature => feature.geometry?.type === 'LineString'
+        );
+
+        if (lines.length === 0 && data.features.length === 0) return [];
+        if (lines.length !== 1) {
+            throw new Error(`Expected one route line, found ${lines.length}.`);
+        }
+
+        return lines[0].geometry.coordinates;
+    }
+
+    const geometry = data?.type === 'Feature' ? data.geometry : data;
+
+    if (geometry?.type && geometry.type !== 'LineString') {
+        throw new Error(`Unexpected route geometry: ${geometry.type}`);
+    }
+
+    return geometry?.coordinates;
+    }
 export function addRoutePlanner(map, extent) {
     const form = document.getElementById('route-form');
     const panel = document.getElementById('route-panel');
@@ -195,24 +217,39 @@ export function addRoutePlanner(map, extent) {
             });
 
             if (!response.ok) throw new Error(`Route API returned ${response.status}`);
-            const { coordinates } = await response.json();
+            const data = await response.json();
             if (controller.signal.aborted) return;
 
-            if (Array.isArray(coordinates) && coordinates.length === 0) {
+            const points = readRoutePoints(data);
+
+            if (Array.isArray(points) && points.length === 0) {
                 status.textContent = 'No feasible route for these points and departure time.';
                 return;
             }
 
-            const valid = Array.isArray(coordinates) && coordinates.length >= 2 &&
-                coordinates.every(point =>
-                    Array.isArray(point) && point.length === 2 &&
-                    point.every(Number.isFinite) && containsCoordinate(extent, point)
-                );
+            if (!Array.isArray(points) || points.length < 2) {
+                throw new Error('The backend returned an invalid route.');
+            }
 
-            if (!valid) throw new Error('Invalid route coordinates');
+            const mapCoordinates = points.map((point, index) => {
+                if (!Array.isArray(point) || point.length < 2) {
+                    throw new Error(`Invalid route point at index ${index}.`);
+                }
 
-            const geometry = new LineString(coordinates);
-            route = new Feature(geometry);
+                const [lon, lat] = point;
+                if (!Number.isFinite(lon) || !Number.isFinite(lat) ||
+                    !containsCoordinate(extent, [lon, lat])) {
+                    throw new Error(`Invalid or out-of-bounds coordinates at index ${index}.`);
+                }
+
+                return [lon, lat];
+                });
+
+            route = new Feature({
+                geometry: new LineString(mapCoordinates),
+                samples: points,
+            });
+
             route.setStyle(routeStyle);
             source.addFeature(route);
 
