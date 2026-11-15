@@ -82,9 +82,10 @@ def spawn_random_storm(custom_data=None):
     vn = float(data.get("velNorthMs", drift_speed * math.sin(heading_rad)))
     danger = int(data.get("dangerLevel", min(5, max(1, int(round((wind_speed - 10.0) / 4.0))))))
 
+    is_frozen = bool(data.get("frozen", False))
     STORM_STATE.update({
         "active": True,
-        "frozen": False,
+        "frozen": is_frozen,
         "spawn_time": time.time(),
         "spawn_lon": lon,
         "spawn_lat": lat,

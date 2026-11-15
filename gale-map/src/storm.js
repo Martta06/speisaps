@@ -1,7 +1,9 @@
 import Feature from 'ol/Feature.js';
 import Polygon from 'ol/geom/Polygon.js';
+import Translate from 'ol/interaction/Translate.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
+import { getCenter } from 'ol/extent.js';
 import { Fill, Stroke, Style, Text } from 'ol/style.js';
 
 const colors = ['#58c997', '#c6d957', '#ffb347', '#ff784f', '#f04462'];
@@ -379,6 +381,66 @@ export function addStormOverlay(map) {
             }
         });
     }
+
+    // Permitir arrastrar la tormenta con el ratón a cualquier punto del mapa
+    const translateStorm = new Translate({
+        filter: feature => feature === footprint,
+    });
+    map.addInteraction(translateStorm);
+
+    translateStorm.on('translatestart', () => {
+        stopDemo();
+        map.getTargetElement().style.cursor = 'grabbing';
+    });
+
+    translateStorm.on('translateend', async () => {
+        map.getTargetElement().style.cursor = '';
+        const geom = footprint.getGeometry();
+        if (!geom || !currentStorm) return;
+
+        const [rawLon, rawLat] = getCenter(geom.getExtent());
+        const clampedLon = Number(Math.min(137.70, Math.max(137.15, rawLon)).toFixed(6));
+        const clampedLat = Number(Math.min(-4.28, Math.max(-4.90, rawLat)).toFixed(6));
+        const newCenter = [clampedLon, clampedLat];
+
+        const movedSpec = {
+            ...(savedVelocity.spec ?? currentStorm),
+            center: newCenter,
+            diameterM: currentStorm.diameterM,
+            windSpeedMs: currentStorm.windSpeedMs,
+            dangerLevel: currentStorm.dangerLevel,
+            velEastMs: isFrozen ? 0.0 : savedVelocity.velEastMs,
+            velNorthMs: isFrozen ? 0.0 : savedVelocity.velNorthMs,
+            motion: isFrozen ? 'stationary' : savedVelocity.motion,
+            severityPenalty: currentStorm.severityPenalty,
+            frozen: isFrozen,
+            simulated: true,
+        };
+        savedVelocity.spec = {
+            ...movedSpec,
+            velEastMs: savedVelocity.velEastMs,
+            velNorthMs: savedVelocity.velNorthMs,
+            motion: savedVelocity.motion,
+        };
+
+        renderStorm({ active: true, ...movedSpec });
+
+        try {
+            await fetch('/api/storm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(movedSpec),
+            });
+        } catch (_e) {
+            // Fallback local
+        }
+
+        if (!isFrozen && usingLocalFallback) {
+            startLocalDriftFrom(savedVelocity.spec);
+        }
+
+        window.dispatchEvent(new CustomEvent('storm-change', { detail: currentStorm }));
+    });
 
     document.getElementById('stop-storm').addEventListener('click', async () => {
         stopDemo();
