@@ -35,16 +35,18 @@ const layers = {
     // segunda mitad (30..350 µSv/h) para Tormenta Solar (SPE)
     ticks: [22, 25, 30, 120, 350],
     valueToFraction(val, localCdf) {
-      let baseFrac;
-      if (val <= 30) {
-        // Rango de calma GCR (22 a 30 µSv/h) ocupa de 0.05 a 0.50 de la barra (blanco/morado -> verde)
-        baseFrac = ((val - 22) / (30 - 22)) * 0.50;
-      } else {
-        // Rango de emergencia SPE (30 a 350 µSv/h) ocupa de 0.50 a 1.00 (amarillo -> naranja -> rojo)
-        baseFrac = 0.50 + Math.pow(Math.min(1, (val - 30) / (350 - 30)), 0.6) * 0.50;
+      if (val <= 32) {
+        // Rango de calma GCR (22 a 32 µSv/h): ocupa la primera mitad (blanco/morado -> azul -> verde)
+        const baseFrac = ((val - 22) / (32 - 22)) * 0.42;
+        const contourRelief = (localCdf - 0.5) * 0.24;
+        return Math.min(0.58, Math.max(0, baseFrac + contourRelief));
       }
-      const contourRelief = (localCdf - 0.5) * 0.14;
-      return Math.min(1, Math.max(0, baseFrac + contourRelief));
+      // En Tormenta Solar (SPE > 32 µSv/h): desplaza la paleta hacia la mitad de alerta
+      // (0.48 amarillo/ámbar en cañones protegidos -> 1.00 rojo/granate en llanuras expuestas)
+      // para que se vea el peligro global PERO manteniendo nítido el relieve de los refugios.
+      const isHeavySpe = val > 200;
+      const minAlertFrac = isHeavySpe ? 0.55 : 0.42;
+      return Math.min(1, Math.max(minAlertFrac, minAlertFrac + (1 - minAlertFrac) * localCdf));
     },
   },
 };
@@ -72,8 +74,16 @@ export function addEnvironmentPanel(map) {
   map.addLayer(new VectorLayer({ source, zIndex: 5 }));
 
   let pending = null;
+  let debounceTimer = null;
   let speMultiplier = 1.0;
   let autoSwitchedToRadiation = false;
+
+  function formatLmst(val) {
+    const num = Number(val);
+    const h = Math.floor(num) % 24;
+    const m = Math.round((num - Math.floor(num)) * 60) % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
 
   function drawGrid(grid, selectedMetric) {
     const { rows, columns, extent, values } = grid;
@@ -179,13 +189,13 @@ export function addEnvironmentPanel(map) {
   async function update() {
     pending?.abort();
     pending = null;
-    source.clear();
-    legend?.replaceChildren();
 
     const selectedMetric = metric.value;
-    hourLabel.textContent = `${hour.value.padStart(2, '0')}:00`;
+    hourLabel.textContent = formatLmst(hour.value);
 
     if (selectedMetric === 'off') {
+      source.clear();
+      legend?.replaceChildren();
       status.textContent = 'Layer off';
       return;
     }
@@ -211,7 +221,10 @@ export function addEnvironmentPanel(map) {
       }
 
       const grid = await response.json();
-      if (!controller.signal.aborted) drawGrid(grid, selectedMetric);
+      if (!controller.signal.aborted) {
+        source.clear();
+        drawGrid(grid, selectedMetric);
+      }
     } catch (error) {
       if (controller.signal.aborted) return;
       console.error(error);
@@ -225,7 +238,11 @@ export function addEnvironmentPanel(map) {
     autoSwitchedToRadiation = false;
     update();
   });
-  hour.addEventListener('input', update);
+  hour.addEventListener('input', () => {
+    hourLabel.textContent = formatLmst(hour.value);
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(update, 45);
+  });
 
   window.addEventListener('solar-change', event => {
     const phase = event.detail?.phase ?? 'clear';
