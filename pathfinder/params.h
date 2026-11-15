@@ -27,6 +27,8 @@ typedef enum {
 typedef struct {
     double max_slope_deg;       /* bloqueador de pendiente (°)         */
     double max_roughness;       /* rugosidad máxima tolerable [0, 1]   */
+    double min_temp_c;          /* temperatura mínima tolerable (°C)   */
+    double max_temp_c;          /* temperatura máxima tolerable (°C)   */
     bool   sep_alert_active;    /* alerta SEP global → bloqueo total   */
 } TraversalLimits;
 
@@ -41,6 +43,7 @@ typedef struct {
     double w_elev_up;    /* coste de ascenso                         */
     double w_elev_down;  /* coste de descenso                        */
     double w_rad;        /* dosis de radiación acumulada (EVA)       */
+    double w_temp;       /* estrés térmico / disconfort temperatura  */
 } CostWeights;
 
 /* ------------------------------------------------------------------ */
@@ -54,6 +57,7 @@ typedef struct {
     double roughness;          /* micro-rugosidad calculada del DEM [0, 1]  */
     double elapsed_time_s;     /* segundos transcurridos desde inicio        */
     double dose_rate_msv_day;  /* tasa de dosis GCR instantánea (mSv/día)    */
+    double temp_c;             /* temperatura atmosférica local (°C)         */
     double speed_ms;           /* velocidad nominal de traversal (m/s)       */
 } EdgeParams;
 

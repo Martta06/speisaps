@@ -1,5 +1,6 @@
 // mars_env.c
 #include "mars_env.h"
+#include "../pathfinder/mars_geo.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -290,6 +291,242 @@ MarsTemperature get_mars_temperature(
     result.temp_k = t_min_k + (t_max_k - t_min_k) * normalized_cycle + lapse_correction_k;
     result.temp_c = result.temp_k - 273.15f;
     return result;
+}
+
+/* --- Caché estática para las funciones auxiliares del frontend --- */
+static int g_meta_loaded = 0;
+static int g_env_rows = 4010;
+static int g_env_cols = 3600;
+static float g_env_px_size_m = 10.0f;
+
+static int g_rad_loaded = 0;
+static float g_baseline_curve_24h[24];
+static float *g_shielding_lut = NULL;
+
+static int g_dem_loaded = 0;
+static float *g_dem_grid = NULL;
+
+static FILE *open_env_data_file(const char *filename, const char *mode) {
+    const char *prefixes[] = {
+        "",
+        "radiation_data/",
+        "../radiation_data/",
+        "speisaps/radiation_data/"
+    };
+    char path[512];
+    for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); ++i) {
+        snprintf(path, sizeof(path), "%s%s", prefixes[i], filename);
+        FILE *f = fopen(path, mode);
+        if (f) return f;
+    }
+    return NULL;
+}
+
+static void ensure_env_meta_loaded(void) {
+    if (g_meta_loaded) return;
+    FILE *meta = open_env_data_file("hirise_meta.txt", "r");
+    if (meta) {
+        int r = 0, c = 0;
+        float px = 10.0f;
+        if (fscanf(meta, "%d %d %f", &r, &c, &px) == 3 && r > 0 && c > 0) {
+            g_env_rows = r;
+            g_env_cols = c;
+            g_env_px_size_m = px;
+        }
+        fclose(meta);
+    }
+    g_meta_loaded = 1;
+}
+
+static void ensure_rad_data_loaded(void) {
+    if (g_rad_loaded) return;
+    ensure_env_meta_loaded();
+
+    FILE *f_base = open_env_data_file("rad_baseline_24h.bin", "rb");
+    if (!f_base || fread(g_baseline_curve_24h, sizeof(float), 24, f_base) != 24) {
+        for (int h = 0; h < 24; ++h) {
+            g_baseline_curve_24h[h] = 26.7f;
+        }
+    }
+    if (f_base) fclose(f_base);
+
+    size_t total_px = (size_t)g_env_rows * (size_t)g_env_cols;
+    g_shielding_lut = (float *)malloc(total_px * sizeof(float));
+    if (g_shielding_lut) {
+        FILE *f_lut = open_env_data_file("gale_shielding_lut.bin", "rb");
+        if (!f_lut || fread_large(g_shielding_lut, sizeof(float), total_px, f_lut) != total_px) {
+            for (size_t i = 0; i < total_px; ++i) {
+                g_shielding_lut[i] = 1.0f;
+            }
+        }
+        if (f_lut) fclose(f_lut);
+    }
+
+    g_rad_loaded = 1;
+}
+
+static void ensure_dem_data_loaded(void) {
+    if (g_dem_loaded) return;
+    ensure_env_meta_loaded();
+
+    size_t total_px = (size_t)g_env_rows * (size_t)g_env_cols;
+    g_dem_grid = (float *)malloc(total_px * sizeof(float));
+    if (g_dem_grid) {
+        FILE *f_dem = open_env_data_file("hirise_dem.bin", "rb");
+        if (!f_dem || fread_large(g_dem_grid, sizeof(float), total_px, f_dem) != total_px) {
+            for (size_t i = 0; i < total_px; ++i) {
+                g_dem_grid[i] = -4500.0f;
+            }
+        }
+        if (f_dem) fclose(f_dem);
+    }
+
+    g_dem_loaded = 1;
+}
+
+float get_radiation_dose_rate_frontend(
+    double lon_deg,
+    double lat_deg,
+    float t_lmst,
+    float spe_multiplier
+) {
+    ensure_rad_data_loaded();
+
+    int row = 0, col = 0;
+    mars_lonlat_to_pixel(lon_deg, lat_deg, (double)g_env_px_size_m, &row, &col);
+
+    float t = fmodf(t_lmst, 24.0f);
+    if (t < 0.0f) t += 24.0f;
+    int h0 = ((int)t) % 24;
+    int h1 = (h0 + 1) % 24;
+    float frac = t - (float)((int)t);
+    float d_rad_open_sky = (1.0f - frac) * g_baseline_curve_24h[h0] + frac * g_baseline_curve_24h[h1];
+
+    /* Si spe_multiplier > 1.0 (ej. 5.0 o 10.0), añadimos el exceso de radiación SPE */
+    float mult = (spe_multiplier > 1.0f) ? spe_multiplier : 1.0f;
+    float spe_storm_rate_uSv_h = (mult - 1.0f) * d_rad_open_sky;
+
+    if (!g_shielding_lut) {
+        return d_rad_open_sky * mult;
+    }
+
+    return get_radiation_dose_rate(
+        t_lmst,
+        row,
+        col,
+        g_env_rows,
+        g_env_cols,
+        g_baseline_curve_24h,
+        g_shielding_lut,
+        1.0f,
+        spe_storm_rate_uSv_h
+    );
+}
+
+float get_mars_temperature_frontend(
+    double lon_deg,
+    double lat_deg,
+    float t_lmst
+) {
+    ensure_dem_data_loaded();
+
+    int row = 0, col = 0;
+    mars_lonlat_to_pixel(lon_deg, lat_deg, (double)g_env_px_size_m, &row, &col);
+
+    float elevation_m = -4500.0f;
+    if (g_dem_grid) {
+        elevation_m = get_safe_elevation(
+            g_dem_grid,
+            row,
+            col,
+            g_env_rows,
+            g_env_cols,
+            -4500.0f
+        );
+    }
+
+    MarsTemperature temp = get_mars_temperature(
+        t_lmst,
+        elevation_m,
+        192.0f,
+        260.0f,
+        -4500.0f
+    );
+    return temp.temp_c;
+}
+
+void get_radiation_dose_rate_batch_frontend(
+    const double *lons_deg,
+    const double *lats_deg,
+    size_t count,
+    float t_lmst,
+    float spe_multiplier,
+    float *out_rates
+) {
+    if (!lons_deg || !lats_deg || !out_rates || count == 0) return;
+    ensure_rad_data_loaded();
+
+    for (size_t i = 0; i < count; ++i) {
+        out_rates[i] = get_radiation_dose_rate_frontend(
+            lons_deg[i], lats_deg[i], t_lmst, spe_multiplier
+        );
+    }
+}
+
+void get_mars_temperature_batch_frontend(
+    const double *lons_deg,
+    const double *lats_deg,
+    size_t count,
+    float t_lmst,
+    float *out_temps_c
+) {
+    if (!lons_deg || !lats_deg || !out_temps_c || count == 0) return;
+    ensure_dem_data_loaded();
+
+    for (size_t i = 0; i < count; ++i) {
+        out_temps_c[i] = get_mars_temperature_frontend(
+            lons_deg[i], lats_deg[i], t_lmst
+        );
+    }
+}
+
+void get_environment_grid_frontend(
+    double west_lon,
+    double south_lat,
+    double east_lon,
+    double north_lat,
+    int grid_rows,
+    int grid_cols,
+    float t_lmst,
+    float spe_multiplier,
+    float *out_rad,
+    float *out_temp_c
+) {
+    if (grid_rows <= 0 || grid_cols <= 0) return;
+    if (out_rad) ensure_rad_data_loaded();
+    if (out_temp_c) ensure_dem_data_loaded();
+
+    double d_lon = (east_lon - west_lon) / (double)grid_cols;
+    double d_lat = (north_lat - south_lat) / (double)grid_rows;
+
+    for (int r = 0; r < grid_rows; ++r) {
+        double lat = south_lat + ((double)r + 0.5) * d_lat;
+        for (int c = 0; c < grid_cols; ++c) {
+            double lon = west_lon + ((double)c + 0.5) * d_lon;
+            size_t idx = (size_t)r * (size_t)grid_cols + (size_t)c;
+
+            if (out_rad) {
+                out_rad[idx] = get_radiation_dose_rate_frontend(
+                    lon, lat, t_lmst, spe_multiplier
+                );
+            }
+            if (out_temp_c) {
+                out_temp_c[idx] = get_mars_temperature_frontend(
+                    lon, lat, t_lmst
+                );
+            }
+        }
+    }
 }
 
 #ifdef BUILD_LUT_MAIN

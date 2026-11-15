@@ -49,3 +49,32 @@ double radiation_cost_per_meter(double dose_rate_msv_day, double speed_ms)
     double dose_rate_msv_s = dose_rate_msv_day / 86400.0;
     return dose_rate_msv_s / speed_ms;
 }
+
+/* ------------------------------------------------------------------ */
+
+double temperature_stress_cost(double temp_c, double min_temp_c, double max_temp_c)
+{
+    if (temp_c < min_temp_c || temp_c > max_temp_c) return INFINITY;
+
+    /* Rango confortable o neutro: -20°C a 0°C */
+    const double comfort_low = -20.0;
+    const double comfort_high = 0.0;
+
+    if (temp_c >= comfort_low && temp_c <= comfort_high) {
+        return 0.0;
+    }
+
+    if (temp_c < comfort_low) {
+        double delta = comfort_low - temp_c;
+        double max_delta = comfort_low - min_temp_c;
+        if (max_delta <= 0.0) return 0.0;
+        double ratio = delta / max_delta;
+        return ratio * ratio; /* cuadrático [0, 1] */
+    } else {
+        double delta = temp_c - comfort_high;
+        double max_delta = max_temp_c - comfort_high;
+        if (max_delta <= 0.0) return 0.0;
+        double ratio = delta / max_delta;
+        return ratio * ratio;
+    }
+}

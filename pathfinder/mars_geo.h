@@ -17,6 +17,10 @@
 /* Radio ecuatorial marciano (m), IAU 2015 */
 #define MARS_RADIUS_M 3396190.0
 
+/* Origen geográfico (esquina Noroeste, píxel row=0, col=0) del DEM HiRISE de Gale Crater */
+#define GALE_DEM_ORIGIN_LON_DEG 137.12247113204074
+#define GALE_DEM_ORIGIN_LAT_DEG (-4.248963057145466)
+
 /*
  * mars_haversine_m — Distancia geodésica entre dos puntos (m).
  *
@@ -83,5 +87,17 @@ void mars_unproject_local(double lat_ref_deg, double lon_ref_deg,
  * wind_from_deg: dirección de procedencia del viento (meteorológica, 0 = Norte).
  */
 double mars_wind_crosstrack_factor(double heading_deg, double wind_from_deg);
+
+/*
+ * mars_lonlat_to_pixel — Convierte coordenadas geográficas marcianas (lon_deg, lat_deg)
+ * a índices de píxel (row, col) en la malla de Gale Crater usando mars_project_local().
+ *
+ * lon_deg, lat_deg: Coordenadas en grados decimales.
+ * pixel_size_m:     Tamaño de píxel en metros (ej. 10.0 para la LUT/DEM de radiación, 1.0 para HiRISE completo).
+ * out_row, out_col: Índices de fila (Norte->Sur) y columna (Oeste->Este) resultantes.
+ */
+void mars_lonlat_to_pixel(double lon_deg, double lat_deg,
+                          double pixel_size_m,
+                          int *out_row, int *out_col);
 
 #endif /* MARS_GEO_H */

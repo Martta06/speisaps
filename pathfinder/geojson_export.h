@@ -12,8 +12,9 @@ typedef struct {
     double lon_deg;
     double lat_deg;
     double elevation_m;
-    double elapsed_time_s;  /* segundos transcurridos desde el inicio */
+    double elapsed_time_s;    /* segundos transcurridos desde el inicio */
     double dose_rate_msv_day; /* tasa de dosis en el momento de paso */
+    double temp_c;            /* temperatura atmosférica en el paso (°C) */
 } PathPoint;
 
 typedef struct {
@@ -25,6 +26,8 @@ typedef struct {
     double max_slope_deg;
     double cumulative_elevation_gain_m;
     double total_radiation_dose_msv;
+    double min_temp_c;
+    double max_temp_c;
 } PathResult;
 
 /*

@@ -11,6 +11,7 @@
 #include "params.h"
 #include "pathfinder_astar.h"
 #include "geojson_export.h"
+#include "radiation_bridge.h"
 
 int main(int argc, char **argv) {
     const char *dem_file = "../Gale_DEM_SMG_1m.tif";
@@ -61,6 +62,15 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    /* Inicializar el modelo de radiación con la LUT y la curva 24h del colaborador */
+    const char *lut_bin = "../radiation_data/gale_shielding_lut.bin";
+    const char *base_bin = "../radiation_data/rad_baseline_24h.bin";
+    if (radiation_init(lut_bin, base_bin)) {
+        printf("Modelo de radiación: cargado desde radiation_data/ (LUT 4010x3600 + Curva 24h)\n");
+    } else {
+        printf("Aviso: usando fallback para modelo de radiación\n");
+    }
+
     TraversalLimits limits = is_rover ? limits_default_rover() : limits_default_foot_eva();
     CostWeights weights    = is_rover ? weights_default_rover() : weights_default_foot_eva();
 
@@ -76,6 +86,7 @@ int main(int argc, char **argv) {
     printf("  Puntos en el trayecto: %zu\n", path.count);
     printf("  Distancia total:       %.2f m\n", path.total_distance_m);
     printf("  Duración estimada:     %.2f s (%.2f min)\n", path.total_duration_s, path.total_duration_s / 60.0);
+    printf("  Rango de temperatura:  %.1f °C a %.1f °C\n", path.min_temp_c, path.max_temp_c);
     printf("  Dosis radiación acum.: %.6f mSv\n", path.total_radiation_dose_msv);
     printf("  Coste total:           %.2f\n", path.total_cost);
     printf("  Pendiente máxima:      %.2f°\n", path.max_slope_deg);
@@ -88,6 +99,7 @@ int main(int argc, char **argv) {
     }
 
     free_path_result(&path);
+    radiation_cleanup();
     dem_close(&ctx);
     return 0;
 }

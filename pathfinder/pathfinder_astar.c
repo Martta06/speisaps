@@ -6,12 +6,17 @@
 #include "edge_cost.h"
 #include "mars_geo.h"
 #include "terrain_cost.h"
-#include "radiation_model.h"
+#include "radiation_bridge.h"
+#include "../radiation_data/mars_env.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 #define SQRT2 1.4142135623730951
 
@@ -214,7 +219,23 @@ bool astar_find_path(const DemContext       *ctx,
 
             /* Hora solar local estimada al atravesar este tramo */
             double sol_hour_arrival = start_sol_hour + (tentative_t / 3600.0);
-            double current_dose_rate = radiation_dose_rate(sol_hour_arrival, 1.0, limits->sep_alert_active);
+            float sep_storm_val = limits->sep_alert_active ? 500.0f : 0.0f;
+            double current_dose_rate = radiation_query_dose_rate_msv_day(
+                (float)sol_hour_arrival,
+                nx,
+                ny,
+                weights->w_rad == 0.0, /* es rover si w_rad == 0 */
+                sep_storm_val
+            );
+
+            /* Calcular temperatura atmosférica con get_mars_temperature() de mars_env.c */
+            MarsTemperature mt = get_mars_temperature(
+                (float)sol_hour_arrival,
+                z_next,
+                190.0f,   /* T_min = 190 K (-83°C) a nivel base */
+                280.0f,   /* T_max = 280 K (+6.8°C) a mediodía */
+                -4500.0f  /* Cota base de Gale Crater en metros */
+            );
 
             /* Calcular micro-rugosidad dinámica desde el DEM en ventana 3x3 */
             double rough = 0.0;
@@ -228,6 +249,7 @@ bool astar_find_path(const DemContext       *ctx,
                 .roughness         = rough,
                 .elapsed_time_s    = tentative_t,
                 .dose_rate_msv_day = current_dose_rate,
+                .temp_c            = (double)mt.temp_c,
                 .speed_ms          = 1.0
             };
 
@@ -279,6 +301,8 @@ bool astar_find_path(const DemContext       *ctx,
     out_path->max_slope_deg = 0.0;
     out_path->cumulative_elevation_gain_m = 0.0;
     out_path->total_radiation_dose_msv = 0.0;
+    out_path->min_temp_c = 100.0;
+    out_path->max_temp_c = -273.15;
 
     cx = gx; cy = gy;
     for (size_t i = count; i > 0; i--) {
@@ -289,14 +313,29 @@ bool astar_find_path(const DemContext       *ctx,
         dem_get_elevation(ctx, cx, cy, &z);
         double t_arr = time_score[CELL_IDX(cx, cy)];
         double cur_h = start_sol_hour + (t_arr / 3600.0);
-        double cur_rate = radiation_dose_rate(cur_h, 1.0, limits->sep_alert_active);
+        float sep_val = limits->sep_alert_active ? 500.0f : 0.0f;
+        double cur_rate = radiation_query_dose_rate_msv_day(
+            (float)cur_h,
+            cx,
+            cy,
+            weights->w_rad == 0.0,
+            sep_val
+        );
+        MarsTemperature mt_step = get_mars_temperature(
+            (float)cur_h,
+            z,
+            190.0f,
+            280.0f,
+            -4500.0f
+        );
 
         out_path->points[idx] = (PathPoint){
             .lon_deg           = lon,
             .lat_deg           = lat,
             .elevation_m       = (double)z,
             .elapsed_time_s    = t_arr,
-            .dose_rate_msv_day = cur_rate
+            .dose_rate_msv_day = cur_rate,
+            .temp_c            = (double)mt_step.temp_c
         };
 
         if (cx == sx && cy == sy) break;
@@ -316,6 +355,14 @@ bool astar_find_path(const DemContext       *ctx,
         double slope = mars_slope_deg(dz, ds > 0.001 ? ds : 1.0);
         if (slope > out_path->max_slope_deg) {
             out_path->max_slope_deg = slope;
+        }
+
+        /* Temperatura extrema en ruta */
+        if (out_path->points[i].temp_c < out_path->min_temp_c) {
+            out_path->min_temp_c = out_path->points[i].temp_c;
+        }
+        if (out_path->points[i].temp_c > out_path->max_temp_c) {
+            out_path->max_temp_c = out_path->points[i].temp_c;
         }
 
         /* Acumulación de dosis real: dt_tramo * rate */

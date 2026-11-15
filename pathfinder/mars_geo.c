@@ -102,3 +102,27 @@ double mars_wind_crosstrack_factor(double heading_deg, double wind_from_deg)
     double diff = deg2rad(wind_to_deg - heading_deg);
     return fabs(sin(diff));
 }
+
+/* ------------------------------------------------------------------ */
+
+void mars_lonlat_to_pixel(double lon_deg, double lat_deg,
+                          double pixel_size_m,
+                          int *out_row, int *out_col)
+{
+    if (pixel_size_m <= 0.0) {
+        pixel_size_m = 10.0;
+    }
+
+    double east_m = 0.0;
+    double north_m = 0.0;
+    mars_project_local(GALE_DEM_ORIGIN_LAT_DEG, GALE_DEM_ORIGIN_LON_DEG,
+                       lat_deg, lon_deg, &east_m, &north_m);
+
+    /* Compensar el factor cos(lat_ref) para coincidir exactamente con la rejilla equirectangular del GeoTIFF */
+    double cos_ref = cos(deg2rad(GALE_DEM_ORIGIN_LAT_DEG));
+    double x_m = (cos_ref > 1e-9) ? (east_m / cos_ref) : east_m;
+    double y_m = -north_m; /* En el ráster las filas (row) crecen de Norte a Sur */
+
+    if (out_col) *out_col = (int)round(x_m / pixel_size_m);
+    if (out_row) *out_row = (int)round(y_m / pixel_size_m);
+}

@@ -27,6 +27,8 @@ int export_path_to_geojson_string(const PathResult *path, char *buffer, size_t m
         "        \"max_slope_deg\": %.2f,\n"
         "        \"cumulative_elevation_gain_m\": %.2f,\n"
         "        \"total_radiation_dose_msv\": %.6f,\n"
+        "        \"min_temp_c\": %.2f,\n"
+        "        \"max_temp_c\": %.2f,\n"
         "        \"waypoints_count\": %zu\n"
         "      },\n"
         "      \"geometry\": {\n"
@@ -38,6 +40,8 @@ int export_path_to_geojson_string(const PathResult *path, char *buffer, size_t m
         path->max_slope_deg,
         path->cumulative_elevation_gain_m,
         path->total_radiation_dose_msv,
+        path->min_temp_c,
+        path->max_temp_c,
         path->count
     );
 
@@ -47,12 +51,13 @@ int export_path_to_geojson_string(const PathResult *path, char *buffer, size_t m
     for (size_t i = 0; i < path->count; i++) {
         const char *comma = (i + 1 < path->count) ? "," : "";
         written = snprintf(buffer + offset, max_len - offset,
-            "          [%.7f, %.7f, %.2f, %.1f, %.4f]%s\n",
+            "          [%.7f, %.7f, %.2f, %.1f, %.4f, %.2f]%s\n",
             path->points[i].lon_deg,
             path->points[i].lat_deg,
             path->points[i].elevation_m,
             path->points[i].elapsed_time_s,
             path->points[i].dose_rate_msv_day,
+            path->points[i].temp_c,
             comma
         );
         if (written < 0 || (size_t)written >= max_len - offset) return -1;
@@ -94,6 +99,8 @@ bool export_path_to_geojson_file(const char *filename, const PathResult *path) {
         "        \"max_slope_deg\": %.2f,\n"
         "        \"cumulative_elevation_gain_m\": %.2f,\n"
         "        \"total_radiation_dose_msv\": %.6f,\n"
+        "        \"min_temp_c\": %.2f,\n"
+        "        \"max_temp_c\": %.2f,\n"
         "        \"waypoints_count\": %zu\n"
         "      },\n"
         "      \"geometry\": {\n"
@@ -105,16 +112,19 @@ bool export_path_to_geojson_file(const char *filename, const PathResult *path) {
         path->max_slope_deg,
         path->cumulative_elevation_gain_m,
         path->total_radiation_dose_msv,
+        path->min_temp_c,
+        path->max_temp_c,
         path->count
     );
 
     for (size_t i = 0; i < path->count; i++) {
-        fprintf(f, "          [%.7f, %.7f, %.2f, %.1f, %.4f]%s\n",
+        fprintf(f, "          [%.7f, %.7f, %.2f, %.1f, %.4f, %.2f]%s\n",
             path->points[i].lon_deg,
             path->points[i].lat_deg,
             path->points[i].elevation_m,
             path->points[i].elapsed_time_s,
             path->points[i].dose_rate_msv_day,
+            path->points[i].temp_c,
             (i + 1 < path->count) ? "," : "");
     }
 

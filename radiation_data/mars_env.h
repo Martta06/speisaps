@@ -75,6 +75,72 @@ MarsTemperature get_mars_temperature(
     float base_elevation_m
 );
 
+/**
+ * Devuelve la tasa de radiación actual en uSv/h para una coordenada (lon, lat) y hora dadas.
+ * Consulta automáticamente la LUT topográfica y la curva de 24h por debajo.
+ * spe_multiplier: 1.0 por defecto (sin tormenta), o mayor si hay SPE activa (ej. 5.0 o 10.0).
+ */
+float get_radiation_dose_rate_frontend(
+    double lon_deg,
+    double lat_deg,
+    float t_lmst,
+    float spe_multiplier
+);
+
+/**
+ * Devuelve la temperatura en grados Celsius para una coordenada (lon, lat) y hora dadas.
+ * Consulta automáticamente la elevación del DEM por debajo.
+ */
+float get_mars_temperature_frontend(
+    double lon_deg,
+    double lat_deg,
+    float t_lmst
+);
+
+/**
+ * Evalúa un array de N coordenadas (lons_deg[i], lats_deg[i]) de una sola vez
+ * y escribe las tasas de radiación (uSv/h) en out_rates[i].
+ */
+void get_radiation_dose_rate_batch_frontend(
+    const double *lons_deg,
+    const double *lats_deg,
+    size_t count,
+    float t_lmst,
+    float spe_multiplier,
+    float *out_rates
+);
+
+/**
+ * Evalúa un array de N coordenadas (lons_deg[i], lats_deg[i]) de una sola vez
+ * y escribe las temperaturas (°C) en out_temps_c[i].
+ */
+void get_mars_temperature_batch_frontend(
+    const double *lons_deg,
+    const double *lats_deg,
+    size_t count,
+    float t_lmst,
+    float *out_temps_c
+);
+
+/**
+ * Genera directamente una rejilla 2D de (grid_rows x grid_cols) para el mapa del frontend
+ * en el rectángulo [west_lon, south_lat, east_lon, north_lat] (fila 0 = borde Sur, col 0 = Oeste,
+ * igual que environment.js en OpenLayers).
+ * Rellena out_rad (si != NULL) y/o out_temp_c (si != NULL) con tamaño grid_rows * grid_cols.
+ */
+void get_environment_grid_frontend(
+    double west_lon,
+    double south_lat,
+    double east_lon,
+    double north_lat,
+    int grid_rows,
+    int grid_cols,
+    float t_lmst,
+    float spe_multiplier,
+    float *out_rad,
+    float *out_temp_c
+);
+
 #ifdef __cplusplus
 }
 #endif

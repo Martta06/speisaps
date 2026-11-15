@@ -60,4 +60,16 @@ double elevation_cost(double dz_m, double w_up, double w_down);
  */
 double radiation_cost_per_meter(double dose_rate_msv_day, double speed_ms);
 
+/*
+ * temperature_stress_cost — Factor de estrés térmico normalizado [0, 1].
+ *
+ * temp_c:     Temperatura ambiente (°C) calculada con el modelo Parton-Logan.
+ * min_temp_c: Límite inferior seguro (ej. -80°C).
+ * max_temp_c: Límite superior seguro (ej. +20°C).
+ *
+ * En la zona óptima (-20°C a 0°C) el estrés es 0. A medida que se acerca
+ * a los extremos se incrementa cuadráticamente. Retorna INFINITY si excede límites.
+ */
+double temperature_stress_cost(double temp_c, double min_temp_c, double max_temp_c);
+
 #endif /* TERRAIN_COST_H */

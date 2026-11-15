@@ -61,7 +61,20 @@
 
 ---
 
-## [2026-11-15 09:27] — Fase 8: Reorganización de Salidas y Limpieza Visual
+## [2026-11-15 09:55] — Fase 9: Integración de radiation_data (mars_env.c) del Colaborador
+### Conexión con el módulo oficial:
+1. **`radiation_data/mars_env.h` y `radiation_data/mars_env.c`**:
+   - Se eliminó la implementación preliminar `radiation_model.c` y se conectó la función oficial del colaborador: `get_radiation_dose_rate()`.
+   - Utiliza la tabla de apantallamiento topográfico precalculada `gale_shielding_lut.bin` ($4\,010 \times 3\,600$ a $10\text{ m/px}$) y la curva de 24 horas real de Curiosity RAD `rad_baseline_24h.bin`.
+2. **`radiation_bridge.h` / `radiation_bridge.c`**:
+   - Mapeo `mmap` de la LUT de $56\text{ MB}$ para consultas instantáneas en tiempo constante $O(1)$.
+   - Conversión de coordenadas de píxel del DEM métrico ($36\,000 \times 40\,100$) al espacio decamétrico de la LUT ($4\,010 \times 3\,600$).
+   - Conversión de unidades desde $\mu\text{Sv/h}$ a $\text{mSv/día}$ requeridas por el motor de travesía.
+   - Manejo de apantallamiento de chasis de Rover ($0.85$) vs. traje EVA presurizado ($1.00$).
+3. **Compilación y verificación**:
+   - `Makefile` enlazado con `../radiation_data/mars_env.c` y banderas OpenMP.
+   - Suite de pruebas completa: **40 PASS, 0 FAIL**.
+
 - Todos los archivos `.geojson` y `.png` han sido trasladados a la subcarpeta `pathfinder/outputs/`.
 - Se han generado los renders de las últimas pruebas decamétricas (10 m):
   - `route_rover_25km_10m_rendered.png` (25 km en 2.24 s).
@@ -141,3 +154,25 @@
    - Se ejecutó el algoritmo sobre un trayecto de $1\,023.64\text{ m}$ (750 waypoints).
    - Salida exportada a `route_1km.geojson`.
    - Renderizado con perfil altimétrico en `route_1km_rendered.png`.
+
+---
+
+## [2026-11-15 10:00] — Fase 5: Integración del modelo ambiental de radiación y temperatura (mars_env.c)
+### Componentes integrados y optimizados:
+1. **Limpieza de variables sintéticas y cálculo dinámico de rugosidad**:
+   - Eliminados parámetros aproximados fijos (rocas sintéticas, vientos estáticos).
+   - Rugosidad calculada dinámicamente sobre la ventana $3\times 3$ del DEM mediante la desviación estándar de elevaciones $\sigma_z$, normalizada en $[0, 1]$ con $\sigma_{\max} = 0.50\text{ m}$ (`dem_get_roughness`).
+2. **`radiation_bridge.h` / `radiation_bridge.c`**:
+   - Sustituido el trazado de rayos por la integración directa de `radiation_data/mars_env.c`.
+   - Mapeo en memoria de `gale_shielding_lut.bin` ($4010 \times 3600$, 10 m/px) y lectura de `rad_baseline_24h.bin`.
+   - Consulta $O(1)$ de tasa de dosis (`get_radiation_dose_rate`) con soporte de apantallamiento rover ($0.85$) vs. traje EVA ($1.00$).
+3. **Modelo térmico marciano**:
+   - Integrado `get_mars_temperature()` basado en el modelo diurno de Parton-Logan corregido por gradiente altimétrico ($-2.0\text{ K/km}$) respecto a la cota base de Gale Crater ($-4500\text{ m}$).
+   - Incorporado coste por estrés térmico fuera de la zona de confort ($-20^\circ\text{C}$ a $0^\circ\text{C}$) y bloqueo rígido fuera de los límites operativos del traje/rover.
+4. **Exportación GeoJSON 6D**:
+   - Coordenadas ampliadas a 6 dimensiones: `[lon, lat, elevación, tiempo_s, dosis_msv_dia, temp_c]`.
+   - Propiedades de resumen con `min_temp_c`, `max_temp_c`, `total_radiation_dose_msv`, `total_duration_s` y `max_slope_deg`.
+5. **Rendimiento y resolución espacial**:
+   - Soporte de paso espacial decamétrico (10 m) que reduce el tiempo de búsqueda en trayectos de 25 km de 5 minutos a 2.24 segundos ($150\times$ aceleración).
+6. **Verificación unitaria**:
+   - 44 pruebas unitarias automatizadas ejecutadas con éxito (44 PASS, 0 FAIL).
