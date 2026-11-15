@@ -1,8 +1,5 @@
-import Feature from 'ol/Feature.js';
-import Polygon from 'ol/geom/Polygon.js';
-import VectorLayer from 'ol/layer/Vector.js';
-import VectorSource from 'ol/source/Vector.js';
-import { Fill, Style } from 'ol/style.js';
+import ImageLayer from 'ol/layer/Image.js';
+import ImageStatic from 'ol/source/ImageStatic.js';
 
 // Paleta extensa de 24 tonos: Blanco hielo -> Lavanda -> Morado -> Índigo -> Azul -> Cian -> Verde -> Amarillo -> Naranja -> Rojo
 const SPECTRUM_24 = [
@@ -13,6 +10,13 @@ const SPECTRUM_24 = [
   '#f59e0b', '#f97316', '#ea580c', '#ef4444',
   '#dc2626', '#b91c1c', '#991b1b', '#7f1d1d',
 ];
+
+// Tabla RGB precalculada para renderizar en Canvas/GPU en pocos milisegundos
+const SPECTRUM_RGB = SPECTRUM_24.map(hex => [
+  parseInt(hex.slice(1, 3), 16),
+  parseInt(hex.slice(3, 5), 16),
+  parseInt(hex.slice(5, 7), 16),
+]);
 
 const layers = {
   temperature: {
@@ -70,8 +74,10 @@ export function addEnvironmentPanel(map) {
   const status = document.getElementById('environment-status');
   const legend = document.querySelector('#environment-panel .risk-legend');
 
-  const source = new VectorSource({ wrapX: false });
-  map.addLayer(new VectorLayer({ source, zIndex: 5 }));
+  const layer = new ImageLayer({ zIndex: 5, visible: false, opacity: 0.62 });
+  map.addLayer(layer);
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
 
   let pending = null;
   let debounceTimer = null;
@@ -107,44 +113,54 @@ export function addEnvironmentPanel(map) {
       return;
     }
 
-    const sorted = [...valid].sort((a, b) => a - b);
-    const min = sorted[0];
-    const max = sorted[sorted.length - 1];
+    // Submuestreamos cada 8 puntos para ordenar la CDF en < 1 ms incluso con 324.000 píxeles
+    const sampleStep = Math.max(1, Math.floor(valid.length / 8000));
+    const sampled = [];
+    for (let i = 0; i < valid.length; i += sampleStep) sampled.push(valid[i]);
+    const sorted = sampled.sort((a, b) => a - b);
 
-    const styles = colors.map(color =>
-      new Style({ fill: new Fill({ color: `${color}88` }) })
-    );
-
-    const [west, south, east, north] = extent;
-    const dx = (east - west) / columns;
-    const dy = (north - south) / rows;
-    const cells = [];
-
-    for (let i = 0; i < values.length; i++) {
-      const value = values[i];
-      if (!Number.isFinite(value)) continue;
-
-      // Backend row 0 starts at the southwest corner.
-      const x = west + (i % columns) * dx;
-      const y = south + Math.floor(i / columns) * dy;
-      const ring = [
-        [x, y], [x + dx, y], [x + dx, y + dy], [x, y + dy], [x, y],
-      ];
-
-      const cell = new Feature({
-        geometry: new Polygon([ring]),
-        value,
-        unit,
-      });
-
-      const localCdf = max > min ? empiricalCdf(sorted, value) : 0.5;
-      const fraction = layerSpec.valueToFraction(value, localCdf);
-      const index = Math.min(colors.length - 1, Math.max(0, Math.floor(fraction * colors.length)));
-      cell.setStyle(styles[index]);
-      cells.push(cell);
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < valid.length; i++) {
+      if (valid[i] < min) min = valid[i];
+      if (valid[i] > max) max = valid[i];
     }
 
-    source.addFeatures(cells);
+    canvas.width = columns;
+    canvas.height = rows;
+    const imgData = ctx.createImageData(columns, rows);
+    const pixels = imgData.data;
+    const nColors = colors.length;
+
+    // La fila 0 del backend empieza en el borde Sur (abajo), mientras que la fila 0 del Canvas es el Norte (arriba)
+    for (let r = 0; r < rows; r++) {
+      const srcRowOffset = r * columns;
+      const dstRowOffset = (rows - 1 - r) * columns * 4;
+      for (let c = 0; c < columns; c++) {
+        const value = values[srcRowOffset + c];
+        if (!Number.isFinite(value)) continue;
+
+        const localCdf = max > min ? empiricalCdf(sorted, value) : 0.5;
+        const fraction = layerSpec.valueToFraction(value, localCdf);
+        const idx = Math.min(nColors - 1, Math.max(0, (fraction * nColors) | 0));
+        const rgb = SPECTRUM_RGB[idx];
+
+        const p = dstRowOffset + (c << 2);
+        pixels[p] = rgb[0];
+        pixels[p + 1] = rgb[1];
+        pixels[p + 2] = rgb[2];
+        pixels[p + 3] = 225;
+      }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+    layer.setSource(new ImageStatic({
+      url: canvas.toDataURL(),
+      projection: map.getView().getProjection(),
+      imageExtent: extent,
+      interpolate: true,
+    }));
+    layer.setVisible(true);
 
     if (legend) {
       const wrapper = document.createElement('div');
@@ -194,7 +210,7 @@ export function addEnvironmentPanel(map) {
     hourLabel.textContent = formatLmst(hour.value);
 
     if (selectedMetric === 'off') {
-      source.clear();
+      layer.setVisible(false);
       legend?.replaceChildren();
       status.textContent = 'Layer off';
       return;
@@ -222,7 +238,6 @@ export function addEnvironmentPanel(map) {
 
       const grid = await response.json();
       if (!controller.signal.aborted) {
-        source.clear();
         drawGrid(grid, selectedMetric);
       }
     } catch (error) {

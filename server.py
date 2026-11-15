@@ -492,7 +492,7 @@ def environment_grid():
     if spe_mult is None or not math.isfinite(spe_mult) or spe_mult < 1.0:
         spe_mult = 1.0
 
-    rows, columns = 205, 160
+    rows, columns = 600, 540
     extent = [
         GALE_EXTENT["west"], GALE_EXTENT["south"],
         GALE_EXTENT["east"], GALE_EXTENT["north"],
@@ -541,7 +541,7 @@ def environment_grid():
         rows=rows,
         columns=columns,
         unit="°C" if is_temperature else "µSv/h",
-        values=[v if math.isfinite(v) else None for v in result],
+        values=[round(v, 2) if math.isfinite(v) else None for v in result],
     )
 
 if __name__ == "__main__":
