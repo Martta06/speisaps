@@ -137,3 +137,71 @@ header {
   -webkit-appearance: none;
   margin: 0;
 }
+
+
+#storm-alert {
+  position: fixed;
+  top: 95px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: grid;
+  gap: 5px;
+  box-sizing: border-box;
+  width: min(370px, calc(100vw - 40px));
+  padding: 12px 16px;
+  border: 2px solid var(--storm-color, #ffae42);
+  border-radius: 10px;
+  background: #202624;
+  color: #ffffff;
+  font: 14px/1.4 system-ui, sans-serif;
+  pointer-events: none;
+}
+
+#storm-alert[hidden] {
+  display: none;
+}
+
+#storm-details {
+  color: #e0e5e1;
+}
+
+
+#mission-alerts {
+  position: fixed;
+  top: 95px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: grid;
+  gap: 8px;
+  width: min(370px, calc(100vw - 40px));
+  pointer-events: none;
+}
+
+#mission-alerts > #storm-alert,
+#mission-alerts > #solar-alert {
+  position: static;
+  transform: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#solar-alert {
+  display: grid;
+  gap: 5px;
+  padding: 12px 16px;
+  border: 2px solid #ffc45c;
+  border-radius: 10px;
+  background: #27231d;
+  color: #fff;
+  font: 14px/1.4 system-ui, sans-serif;
+}
+
+#solar-alert[data-phase="active"] {
+  border-color: #ff786b;
+}
+
+#solar-alert[hidden] {
+  display: none;
+}

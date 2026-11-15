@@ -9,6 +9,9 @@ import ImageStatic from 'ol/source/ImageStatic.js';
 import Projection from 'ol/proj/Projection.js';
 import { addEnvironmentPanel } from './environment.js';
 import { addRoutePlanner } from './route.js';
+import { addStormOverlay } from './storm.js';
+import { addRover } from './rover.js';
+import { addSolarAlert } from './solar.js';
 
 // DEM bounds in Mars 2000 coordinates: west, south, east, north.
 const galeExtent = [
@@ -95,3 +98,60 @@ elevationSource.on('imageloaderror', () => {
 
 addEnvironmentPanel(map, galeExtent);
 addRoutePlanner(map, galeExtent);
+addStormOverlay(map);
+
+// const storms = addStormOverlay(map);  (Unirlo cuando esté el backend)
+
+let stormTimer;
+let stopped = false;
+let stormRequest;
+
+async function refreshStorm() {
+  stormRequest = new AbortController();
+
+  try {
+    const response = await fetch('/api/storm', {
+      signal: stormRequest.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Storm API returned HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (stopped) return;
+
+    storms.updateStorm(data);
+  } catch (error) {
+    if (stopped) return;
+
+    console.error(error);
+
+    const alert = document.getElementById('storm-alert');
+    alert.hidden = false;
+    alert.style.setProperty('--storm-color', '#aeb7b2');
+
+    document.getElementById('storm-title').textContent =
+      'Storm updates unavailable';
+
+    document.getElementById('storm-details').textContent =
+      'Any storm shown is the last received position.';
+  } finally {
+    if (!stopped) {
+      stormTimer = setTimeout(refreshStorm, 2000);
+    }
+  }
+}
+
+refreshStorm();
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    stopped = true;
+    clearTimeout(stormTimer);
+    stormRequest?.abort();
+  });
+}
+
+addRover(map, { demo: true });
+addSolarAlert();

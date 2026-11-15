@@ -41,7 +41,23 @@
       </div>
 
       <small id="environment-status" role="status">Layer off</small>
+      <button id="start-storm" type="button">Simulate dust storm</button>
+      <button id="stop-storm" type="button">Clear demo storm</button>
+      <button id="solar-demo" type="button">Simulate solar event</button>
+      <small id="rover-status" role="status">Waiting for rover position…</small>
     </section>
+
+    <div id="mission-alerts">
+      <aside id="solar-alert" role="status" aria-live="polite" hidden>
+        <strong id="solar-title"></strong>
+        <span id="solar-details"></span>
+      </aside>
+
+      <aside id="storm-alert" role="status" aria-live="polite" hidden>
+        <strong id="storm-title"></strong>
+        <span id="storm-details"></span>
+      </aside>
+    </div>
 
     <details id="route-panel" open>
       <summary>Route planner</summary>
