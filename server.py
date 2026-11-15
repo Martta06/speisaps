@@ -492,7 +492,7 @@ def environment_grid():
     if spe_mult is None or not math.isfinite(spe_mult) or spe_mult < 1.0:
         spe_mult = 1.0
 
-    rows, columns = 600, 540
+    rows, columns = 380, 340
     extent = [
         GALE_EXTENT["west"], GALE_EXTENT["south"],
         GALE_EXTENT["east"], GALE_EXTENT["north"],

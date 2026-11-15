@@ -71,6 +71,7 @@ export function addEnvironmentPanel(map) {
   const metric = document.getElementById('environment-metric');
   const hour = document.getElementById('sol-hour');
   const hourLabel = document.getElementById('sol-hour-label');
+  const playBtn = document.getElementById('play-time');
   const status = document.getElementById('environment-status');
   const legend = document.querySelector('#environment-panel .risk-legend');
 
@@ -81,13 +82,16 @@ export function addEnvironmentPanel(map) {
 
   let pending = null;
   let debounceTimer = null;
+  let playTimer = null;
+  let isPlaying = false;
   let speMultiplier = 1.0;
   let autoSwitchedToRadiation = false;
 
   function formatLmst(val) {
-    const num = Number(val);
-    const h = Math.floor(num) % 24;
-    const m = Math.round((num - Math.floor(num)) * 60) % 60;
+    const totalMinutes = Math.round((Number(val) * 60) / 5) * 5;
+    const wrappedMinutes = ((totalMinutes % 1440) + 1440) % 1440;
+    const h = Math.floor(wrappedMinutes / 60);
+    const m = wrappedMinutes % 60;
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
@@ -218,7 +222,9 @@ export function addEnvironmentPanel(map) {
 
     const controller = new AbortController();
     pending = controller;
-    status.textContent = 'Loading environment data…';
+    if (!isPlaying) {
+      status.textContent = 'Loading environment data…';
+    }
 
     try {
       const params = new URLSearchParams({
@@ -249,15 +255,62 @@ export function addEnvironmentPanel(map) {
     }
   }
 
+  function stopPlayback() {
+    isPlaying = false;
+    clearTimeout(playTimer);
+    playTimer = null;
+    if (playBtn) {
+      playBtn.textContent = '▶ Play';
+      playBtn.setAttribute('aria-pressed', 'false');
+    }
+  }
+
+  async function tickPlayback() {
+    if (!isPlaying) return;
+    // Avanza en múltiplos exactos de 5 minutos (15 min por tick a alta velocidad)
+    const curFiveMinSteps = Math.round(Number(hour.value) * 12);
+    const nextFiveMinSteps = (curFiveMinSteps + 3) % 288;
+    hour.value = String(nextFiveMinSteps / 12);
+    hourLabel.textContent = formatLmst(hour.value);
+    await update();
+    if (isPlaying) {
+      playTimer = setTimeout(tickPlayback, 20);
+    }
+  }
+
+  if (playBtn) {
+    playBtn.addEventListener('click', () => {
+      if (isPlaying) {
+        stopPlayback();
+        return;
+      }
+      if (metric.value === 'off') {
+        metric.value = 'temperature';
+      }
+      isPlaying = true;
+      playBtn.textContent = '⏸ Pause';
+      playBtn.setAttribute('aria-pressed', 'true');
+      tickPlayback();
+    });
+  }
+
   metric.addEventListener('change', () => {
     autoSwitchedToRadiation = false;
+    if (metric.value === 'off' && isPlaying) {
+      stopPlayback();
+    }
     update();
   });
   hour.addEventListener('input', () => {
+    if (isPlaying) stopPlayback();
     hourLabel.textContent = formatLmst(hour.value);
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(update, 45);
+    debounceTimer = setTimeout(update, 12);
   });
+
+  if (import.meta.hot) {
+    import.meta.hot.dispose(stopPlayback);
+  }
 
   window.addEventListener('solar-change', event => {
     const phase = event.detail?.phase ?? 'clear';
