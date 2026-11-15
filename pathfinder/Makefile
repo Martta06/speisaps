@@ -2,7 +2,7 @@ CC      = gcc
 CFLAGS  = -O3 -Wall -Wextra -std=c11 -Wpedantic
 LDFLAGS = -lm
 
-SRCS_CORE = params.c mars_geo.c terrain_cost.c edge_cost.c dem_reader.c geojson_export.c pathfinder_astar.c
+SRCS_CORE = params.c mars_geo.c terrain_cost.c edge_cost.c dem_reader.c geojson_export.c pathfinder_astar.c radiation_model.c
 OBJS_CORE = $(SRCS_CORE:.c=.o)
 
 .PHONY: all test clean run

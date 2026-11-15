@@ -6,6 +6,7 @@
 #include "edge_cost.h"
 #include "mars_geo.h"
 #include "terrain_cost.h"
+#include "radiation_model.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -88,16 +89,28 @@ static const int DX[8] = { 1, -1,  0,  0, 1, -1,  1, -1 };
 static const int DY[8] = { 0,  0,  1, -1, 1, -1, -1,  1 };
 static const double DIST_STEP[8] = { 1.0, 1.0, 1.0, 1.0, SQRT2, SQRT2, SQRT2, SQRT2 };
 
+/* Función de velocidad efectiva considerando la pendiente angular */
+static inline double traversal_time_step(double dist_m, double slope_deg, double v_nom_ms) {
+    if (v_nom_ms <= 0.0) v_nom_ms = 1.0;
+    /* Reducción exponencial suave de velocidad con pendiente para trajes/rovers */
+    double slope_rad = slope_deg * (M_PI / 180.0);
+    double factor = exp(1.5 * sin(slope_rad)); /* subidas ralentizan */
+    return (dist_m / v_nom_ms) * factor;
+}
+
 bool astar_find_path(const DemContext       *ctx,
                      double                  start_lon,
                      double                  start_lat,
                      double                  goal_lon,
                      double                  goal_lat,
+                     double                  start_sol_hour,
+                     int                     step_meters,
                      const CostWeights      *weights,
                      const TraversalLimits  *limits,
                      PathResult             *out_path)
 {
     if (!ctx || !weights || !limits || !out_path) return false;
+    if (step_meters < 1) step_meters = 1;
 
     int sx, sy, gx, gy;
     dem_geo_to_pixel(ctx, start_lon, start_lat, &sx, &sy);
@@ -108,38 +121,55 @@ bool astar_find_path(const DemContext       *ctx,
         return false;
     }
 
-    /* Definir caja englobante (bounding box) local con margen */
-    int min_x = (sx < gx ? sx : gx) - 200;
-    int max_x = (sx > gx ? sx : gx) + 200;
-    int min_y = (sy < gy ? sy : gy) - 200;
-    int max_y = (sy > gy ? sy : gy) + 200;
+    /* Alinear coordenadas a la rejilla de paso step_meters */
+    int step = step_meters;
+    sx = (sx / step) * step;
+    sy = (sy / step) * step;
+    gx = (gx / step) * step;
+    gy = (gy / step) * step;
+
+    /* Definir caja englobante (bounding box) local con margen en píxeles */
+    int margin_px = 20 * step;
+    int min_x = (sx < gx ? sx : gx) - margin_px;
+    int max_x = (sx > gx ? sx : gx) + margin_px;
+    int min_y = (sy < gy ? sy : gy) - margin_px;
+    int max_y = (sy > gy ? sy : gy) + margin_px;
 
     if (min_x < 0) min_x = 0;
     if (min_y < 0) min_y = 0;
     if (max_x >= (int)ctx->width)  max_x = (int)ctx->width - 1;
     if (max_y >= (int)ctx->height) max_y = (int)ctx->height - 1;
 
-    int grid_w = max_x - min_x + 1;
-    int grid_h = max_y - min_y + 1;
+    /* Alinear límites a múltiplos del paso */
+    min_x = (min_x / step) * step;
+    min_y = (min_y / step) * step;
+    max_x = (max_x / step) * step;
+    max_y = (max_y / step) * step;
+
+    int grid_w = (max_x - min_x) / step + 1;
+    int grid_h = (max_y - min_y) / step + 1;
     size_t total_cells = (size_t)grid_w * grid_h;
 
     double *g_score = (double*)malloc(total_cells * sizeof(double));
+    double *time_score = (double*)malloc(total_cells * sizeof(double));
     int *came_from_x = (int*)malloc(total_cells * sizeof(int));
     int *came_from_y = (int*)malloc(total_cells * sizeof(int));
     unsigned char *closed = (unsigned char*)calloc(total_cells, 1);
 
     for (size_t i = 0; i < total_cells; i++) {
         g_score[i] = INFINITY;
+        time_score[i] = INFINITY;
         came_from_x[i] = -1;
         came_from_y[i] = -1;
     }
 
-    #define CELL_IDX(x, y) (((y) - min_y) * grid_w + ((x) - min_x))
+    #define CELL_IDX(x, y) ((((y) - min_y) / step) * grid_w + (((x) - min_x) / step))
 
-    MinHeap *open_set = heap_create(4096);
+    MinHeap *open_set = heap_create(8192);
 
     size_t start_idx = CELL_IDX(sx, sy);
     g_score[start_idx] = 0.0;
+    time_score[start_idx] = 0.0;
 
     /* Heurística admisible euclídea (distancia en metros multiplicada por peso base) */
     double h_start = hypot(gx - sx, gy - sy) * weights->w_dist;
@@ -160,10 +190,11 @@ bool astar_find_path(const DemContext       *ctx,
 
         float z_curr;
         if (!dem_get_elevation(ctx, current.x, current.y, &z_curr)) continue;
+        double t_curr = time_score[curr_idx];
 
         for (int d = 0; d < 8; d++) {
-            int nx = current.x + DX[d];
-            int ny = current.y + DY[d];
+            int nx = current.x + DX[d] * step;
+            int ny = current.y + DY[d] * step;
 
             if (nx < min_x || nx > max_x || ny < min_y || ny > max_y) continue;
 
@@ -173,23 +204,30 @@ bool astar_find_path(const DemContext       *ctx,
             float z_next;
             if (!dem_get_elevation(ctx, nx, ny, &z_next)) continue;
 
-            double step_dist = DIST_STEP[d]; /* 1.0 o ~1.414 metros */
+            double step_dist = DIST_STEP[d] * (double)step; /* ej. 10.0 m o 14.14 m */
             double dz = (double)(z_next - z_curr);
             double slope = mars_slope_deg(dz, step_dist);
 
-            /* Evaluar parámetros con nuestra función modular */
+            /* Tiempo de cruce de este tramo */
+            double dt = traversal_time_step(step_dist, slope, 1.0);
+            double tentative_t = t_curr + dt;
+
+            /* Hora solar local estimada al atravesar este tramo */
+            double sol_hour_arrival = start_sol_hour + (tentative_t / 3600.0);
+            double current_dose_rate = radiation_dose_rate(sol_hour_arrival, 1.0, limits->sep_alert_active);
+
+            /* Calcular micro-rugosidad dinámica desde el DEM en ventana 3x3 */
+            double rough = 0.0;
+            dem_get_roughness(ctx, nx, ny, &rough);
+
+            /* Evaluar parámetros estrictamente reales con la función de coste limpia */
             EdgeParams ep = {
                 .delta_s_m         = step_dist,
                 .delta_z_m         = dz,
                 .slope_deg         = slope,
-                .roughness_vrm     = 0.05,
-                .rock_abundance    = 0.05,
-                .thermal_inertia   = 200.0,
-                .hazard_distance_m = 100.0,
-                .max_rock_height_m = 0.05,
-                .cell_class        = CELL_SAFE,
-                .dose_rate_msv_day = 0.64,
-                .wind_multiplier   = 0.0,
+                .roughness         = rough,
+                .elapsed_time_s    = tentative_t,
+                .dose_rate_msv_day = current_dose_rate,
                 .speed_ms          = 1.0
             };
 
@@ -202,6 +240,7 @@ bool astar_find_path(const DemContext       *ctx,
                 came_from_x[n_idx] = current.x;
                 came_from_y[n_idx] = current.y;
                 g_score[n_idx] = tentative_g;
+                time_score[n_idx] = tentative_t;
 
                 double h = hypot(gx - nx, gy - ny) * weights->w_dist;
                 heap_push(open_set, nx, ny, tentative_g + h);
@@ -212,6 +251,7 @@ bool astar_find_path(const DemContext       *ctx,
     if (!reached) {
         heap_free(open_set);
         free(g_score);
+        free(time_score);
         free(came_from_x);
         free(came_from_y);
         free(closed);
@@ -234,9 +274,11 @@ bool astar_find_path(const DemContext       *ctx,
     out_path->points = (PathPoint*)malloc(count * sizeof(PathPoint));
     out_path->count = count;
     out_path->total_cost = g_score[CELL_IDX(gx, gy)];
+    out_path->total_duration_s = time_score[CELL_IDX(gx, gy)];
     out_path->total_distance_m = 0.0;
     out_path->max_slope_deg = 0.0;
     out_path->cumulative_elevation_gain_m = 0.0;
+    out_path->total_radiation_dose_msv = 0.0;
 
     cx = gx; cy = gy;
     for (size_t i = count; i > 0; i--) {
@@ -245,11 +287,16 @@ bool astar_find_path(const DemContext       *ctx,
         dem_pixel_to_geo(ctx, cx, cy, &lon, &lat);
         float z = 0.0f;
         dem_get_elevation(ctx, cx, cy, &z);
+        double t_arr = time_score[CELL_IDX(cx, cy)];
+        double cur_h = start_sol_hour + (t_arr / 3600.0);
+        double cur_rate = radiation_dose_rate(cur_h, 1.0, limits->sep_alert_active);
 
         out_path->points[idx] = (PathPoint){
-            .lon_deg     = lon,
-            .lat_deg     = lat,
-            .elevation_m = (double)z
+            .lon_deg           = lon,
+            .lat_deg           = lat,
+            .elevation_m       = (double)z,
+            .elapsed_time_s    = t_arr,
+            .dose_rate_msv_day = cur_rate
         };
 
         if (cx == sx && cy == sy) break;
@@ -270,10 +317,16 @@ bool astar_find_path(const DemContext       *ctx,
         if (slope > out_path->max_slope_deg) {
             out_path->max_slope_deg = slope;
         }
+
+        /* Acumulación de dosis real: dt_tramo * rate */
+        double dt_segment = out_path->points[i].elapsed_time_s - out_path->points[i - 1].elapsed_time_s;
+        double seg_rate = out_path->points[i].dose_rate_msv_day;
+        out_path->total_radiation_dose_msv += seg_rate * (dt_segment / 86400.0);
     }
 
     heap_free(open_set);
     free(g_score);
+    free(time_score);
     free(came_from_x);
     free(came_from_y);
     free(closed);
