@@ -58,8 +58,84 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
     const resetBtn = document.getElementById('reset-route');
     const hour = document.getElementById('sol-hour');
     const travelMode = document.getElementById('travel-mode');
+    const telemetryPanel = document.getElementById('route-telemetry');
+    const telDistance = document.getElementById('tel-distance');
+    const telDuration = document.getElementById('tel-duration');
+    const telEta = document.getElementById('tel-eta');
+    const telRadiation = document.getElementById('tel-radiation');
+    const telElevation = document.getElementById('tel-elevation');
+    const telTemp = document.getElementById('tel-temp');
     const source = new VectorSource({ wrapX: false });
     const { getSolarState, getCurrentStorm } = envHooks;
+
+    function formatLmstEta(startHour, durationSeconds) {
+        const totalHours = Number(startHour) + (durationSeconds / 3600);
+        const solOffset = Math.floor(totalHours / 24);
+        const wrapped = ((totalHours % 24) + 24) % 24;
+        const hh = Math.floor(wrapped);
+        const mm = Math.round((wrapped - hh) * 60) % 60;
+        const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} LMST`;
+        return solOffset > 0 ? `${timeStr} (+${solOffset} Sol)` : timeStr;
+    }
+
+    function formatDuration(seconds) {
+        const totalMin = Math.round(seconds / 60);
+        if (totalMin < 60) return `${totalMin} min (${Math.round(seconds)} s)`;
+        const h = Math.floor(totalMin / 60);
+        const m = totalMin % 60;
+        return `${h}h ${String(m).padStart(2, '0')}m`;
+    }
+
+    function updateTelemetryPanel(data, departureHour) {
+        if (!telemetryPanel) return;
+        const props = data?.properties ?? {};
+        const distM = props.total_distance_m ?? data?.distance_m;
+        const durS = props.total_duration_s ?? data?.duration_s;
+        const doseMsv = props.total_radiation_dose_msv ?? data?.radiation_dose_msv;
+        const elevGainM = props.cumulative_elevation_gain_m;
+        const maxSlope = props.max_slope_deg;
+        const minTemp = props.min_temp_c;
+        const maxTemp = props.max_temp_c;
+
+        telDistance.textContent = Number.isFinite(distM)
+            ? `${(distM / 1000).toFixed(2)} km (${Math.round(distM)} m)`
+            : '—';
+
+        telDuration.textContent = Number.isFinite(durS)
+            ? formatDuration(durS)
+            : '—';
+
+        telEta.textContent = Number.isFinite(durS)
+            ? formatLmstEta(departureHour, durS)
+            : '—';
+
+        if (Number.isFinite(doseMsv)) {
+            const doseUsv = doseMsv * 1000;
+            telRadiation.textContent = doseUsv >= 100
+                ? `${doseUsv.toFixed(1)} µSv (${doseMsv.toFixed(3)} mSv)`
+                : `${doseUsv.toFixed(2)} µSv`;
+        } else {
+            telRadiation.textContent = '—';
+        }
+
+        if (Number.isFinite(elevGainM) && Number.isFinite(maxSlope)) {
+            telElevation.textContent = `+${elevGainM.toFixed(1)} m · max ${maxSlope.toFixed(1)}°`;
+        } else if (Number.isFinite(elevGainM)) {
+            telElevation.textContent = `+${elevGainM.toFixed(1)} m`;
+        } else {
+            telElevation.textContent = '—';
+        }
+
+        if (Number.isFinite(minTemp) && Number.isFinite(maxTemp)) {
+            const fmtT = t => `${t > 0 ? `+${t.toFixed(1)}` : t.toFixed(1)} °C`;
+            telTemp.textContent = `${fmtT(minTemp)} / ${fmtT(maxTemp)}`;
+        } else {
+            telTemp.textContent = '—';
+        }
+
+        telemetryPanel.hidden = false;
+        telemetryPanel.open = true;
+    }
 
   // Above the environmental overlay, which uses zIndex 5.
     map.addLayer(new VectorLayer({ source, zIndex: 20 }));
@@ -224,6 +300,7 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
             clearRoute();
             rover.setOrigin(null);
             status.textContent = '';
+            if (telemetryPanel) telemetryPanel.hidden = true;
 
             const view = map.getView();
             view.cancelAnimations();
@@ -351,17 +428,23 @@ export function addRoutePlanner(map, extent, rover, envHooks = {}) {
             route.setStyle(routeStyle);
             source.addFeature(route);
             rover.play(data.full_coordinates);
+            updateTelemetryPanel(data, Number(hour.value));
 
             fitRouteView();
 
-            const distKm = Number.isFinite(data.distance_m)
-                ? `${(data.distance_m / 1000).toFixed(2)} km`
+            const props = data?.properties ?? {};
+            const distVal = props.total_distance_m ?? data.distance_m;
+            const durVal = props.total_duration_s ?? data.duration_s;
+            const doseVal = props.total_radiation_dose_msv ?? data.radiation_dose_msv;
+
+            const distKm = Number.isFinite(distVal)
+                ? `${(distVal / 1000).toFixed(2)} km`
                 : null;
-            const durMin = Number.isFinite(data.duration_s)
-                ? `${Math.round(data.duration_s / 60)} min`
+            const durMin = Number.isFinite(durVal)
+                ? `${Math.round(durVal / 60)} min`
                 : null;
-            const doseUsv = Number.isFinite(data.radiation_dose_msv)
-                ? `${(data.radiation_dose_msv * 1000).toFixed(1)} µSv`
+            const doseUsv = Number.isFinite(doseVal)
+                ? `${(doseVal * 1000).toFixed(1)} µSv`
                 : null;
 
             const tags = [distKm, durMin, doseUsv].filter(Boolean);

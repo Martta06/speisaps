@@ -93,6 +93,18 @@
 
         <span id="rover-status" hidden></span>
 
+        <details class="module" id="route-telemetry" hidden open>
+          <summary>Route telemetry</summary>
+          <dl class="readings">
+            <div><dt>Distance</dt><dd id="tel-distance">—</dd></div>
+            <div><dt>Travel time</dt><dd id="tel-duration">—</dd></div>
+            <div><dt>ETA (LMST)</dt><dd id="tel-eta">—</dd></div>
+            <div><dt>Total radiation</dt><dd id="tel-radiation">—</dd></div>
+            <div><dt>Elevation / slope</dt><dd id="tel-elevation">—</dd></div>
+            <div><dt>Temp (min / max)</dt><dd id="tel-temp">—</dd></div>
+          </dl>
+        </details>
+
         <details class="module" open>
           <summary>Mission log</summary>
           <ol id="mission-log"></ol>
