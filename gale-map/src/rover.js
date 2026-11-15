@@ -169,11 +169,25 @@ export function addRover(map) {
             refSample[5] ?? 0,
         ]);
 
-        // Saltamos los primeros puntos que hayan quedado muy pegados durante los ~150 ms de cálculo
-        let startIdx = 1;
+        // Durante el fetch, el rover siguió avanzando: buscamos el punto de la nueva ruta
+        // más cercano a su posición actual para empalmar siempre hacia delante (sin retroceder).
+        let closestIdx = 0;
+        let minDistSq = Infinity;
+        for (let i = 0; i < newFutureSamples.length; i++) {
+            const dx = newFutureSamples[i][0] - curPos[0];
+            const dy = newFutureSamples[i][1] - curPos[1];
+            const dSq = dx * dx + dy * dy;
+            if (dSq < minDistSq) {
+                minDistSq = dSq;
+                closestIdx = i;
+            }
+        }
+
+        const baseTime = newFutureSamples[closestIdx][3];
+        let startIdx = Math.min(closestIdx + 1, newFutureSamples.length - 1);
         while (
             startIdx + 1 < newFutureSamples.length &&
-            newFutureSamples[startIdx][3] < 25
+            (newFutureSamples[startIdx][3] - baseTime) < 25
         ) {
             startIdx++;
         }
@@ -182,8 +196,8 @@ export function addRover(map) {
         let prevTime = currentElapsed;
         for (let i = startIdx; i < newFutureSamples.length; i++) {
             const pt = newFutureSamples[i];
-            const rawTargetTime = currentElapsed + Math.max(25, pt[3]);
-            const nextTime = Math.max(prevTime + 5, rawTargetTime);
+            const dtFromNow = Math.max(25, pt[3] - baseTime);
+            const nextTime = Math.max(prevTime + 5, currentElapsed + dtFromNow);
             prevTime = nextTime;
             futureShifted.push([
                 pt[0],
