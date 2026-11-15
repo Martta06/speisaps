@@ -117,8 +117,5 @@ if __name__ == "__main__":
     TIF_PATH = r"C:\Users\ilac8\Desktop\Uni\NASA\geotiff\Gale_DEM_SMG_1m.tif"
     RAD_DIR = r"C:\Users\ilac8\Desktop\Uni\NASA\datos_rad"
 
-    # Cambia esto a 10 para que trabaje a 10 m/px (4010 x 3600 píxeles)
     export_hirise_to_binary(TIF_PATH, downsample_factor=10)
-    
-    # Si ya ejecutaste esto antes y tienes rad_baseline_24h.bin, puedes comentarlo con #
     export_rad_baseline_to_binary(RAD_DIR)

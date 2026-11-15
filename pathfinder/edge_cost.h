@@ -15,7 +15,7 @@
 /*
  * edge_cost — Coste total de traversar el segmento descrito por ep.
  *
- * Fórmula limpia y puramente física:
+ * Fórmula de coste por segmento:
  *   C = delta_s × [
  *         w_dist
  *       + w_slope  × slope_cost(θ, θ_max)

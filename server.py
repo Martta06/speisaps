@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-server.py — Servidor API REST local para la interfaz web (Persona 1 <-> Persona 2 & 3)
+server.py — Servidor API REST local para Gale et al. (Martian Route Planner & Environmental Engine)
 
 Expone los endpoints /api/route, /api/rover, /api/storm y /api/camp en http://127.0.0.1:8000.
 Vite (gale-map) reenvía automáticamente las peticiones de /api a este puerto.
@@ -304,7 +304,7 @@ def compute_route():
         props = features[0].get("properties", {})
         full_coords = features[0].get("geometry", {}).get("coordinates", [])
 
-        # Para compatibilidad estricta con OpenLayers (point.length === 2 en route.js de frontend)
+        # Coordenadas 2D [lon, lat] para el trazado en mapa
         coords_2d = [[c[0], c[1]] for c in full_coords]
 
         response_payload = {

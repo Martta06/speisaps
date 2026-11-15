@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* Inicializar el modelo de radiación con la LUT y la curva 24h del colaborador */
+    /* Inicializar el modelo de radiación (LUT topográfica y curva diurna 24h) */
     const char *lut_bin = "../radiation_data/gale_shielding_lut.bin";
     const char *base_bin = "../radiation_data/rad_baseline_24h.bin";
     if (radiation_init(lut_bin, base_bin)) {

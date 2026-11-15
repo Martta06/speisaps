@@ -10,17 +10,14 @@
 /* ------------------------------------------------------------------ */
 
 /*
- * Nota sobre SPE: ya no hay un bloqueo global (INFINITY) cuando hay tormenta
- * solar. La SPE entra a través de ep->dose_rate_msv_day (que A* calcula con la
- * tasa SPE vigente en el instante de paso y el apantallamiento topográfico del
- * píxel). Así, en lugar de "no hay ruta", A* devuelve la ruta que minimiza la
- * dosis: prefiere cañones y pies de escarpe y evita llanuras expuestas.
+ * Calcula el coste compuesto de atravesar un segmento en función de la
+ * topografía, radiación (GCR + SPE), temperatura y tormentas de arena.
  */
 double edge_cost(const EdgeParams      *ep,
                  const CostWeights     *w,
                  const TraversalLimits *lim)
 {
-    /* ---- Tormenta de Arena Dinámica (núcleo < 0.3*R -> INFINITY) -- */
+    /* ---- Tormenta de Arena Dinámica ------------------------------- */
     if (!isfinite(ep->dust_storm_penalty)) return INFINITY;
     double f_storm = (ep->dust_storm_penalty > 0.0) ? ep->dust_storm_penalty : 0.0;
 

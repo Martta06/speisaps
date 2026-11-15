@@ -16,7 +16,18 @@ Before starting, check that the following runtime assets are present:
 | `radiation_data/` | Model inputs, including `hirise_dem.bin`, `hirise_meta.txt`, `gale_shielding_lut.bin`, and `rad_baseline_24h.bin` |
 | `gale-map/public/data/` | Basemap images, including `gale-terrain.png` and `gale-colour.png` |
 
-If the checkout uses Git LFS, run `git lfs pull` to retrieve the actual data files. If the native binaries or datasets are distributed separately, obtain the matching Windows assets from the project team and place them at the paths above.
+### Downloading `Gale_DEM_SMG_1m.tif` (5.4 GB — Excluded from GitHub)
+
+Because GitHub enforces a strict file size limit, the 5.4 GB NASA/USGS HiRISE-CTX-HRSC merged Digital Elevation Model (`Gale_DEM_SMG_1m.tif`, $36\,000 \times 40\,100\text{ px}$ at $1\text{ m/px}$) is excluded via `.gitignore`. To install it:
+
+1. **Download from the official USGS Astrogeology Science Center (NASA PDS):**
+   - **Direct GeoTIFF download (`5.4 GB`):** <https://astropedia.astrogeology.usgs.gov/download/Mars/MSL/Gale_otti_blend/Gale_DEM_SMG_1m.tif>
+   - Or via terminal (`curl`):
+     ```powershell
+     curl.exe -L -o Gale_DEM_SMG_1m.tif https://astropedia.astrogeology.usgs.gov/download/Mars/MSL/Gale_otti_blend/Gale_DEM_SMG_1m.tif
+     ```
+2. **Place the file** directly in the repository root (`speisaps/Gale_DEM_SMG_1m.tif`)
+3. *(Optional)* The precomputed $10\text{ m/px}$ downsampled binary grids (`radiation_data/hirise_dem.bin`, `gale_shielding_lut.bin`, and `rad_baseline_24h.bin`) are already included in `radiation_data/`. To regenerate them from scratch from the `.tif`, run `python radiation_data/prepare_rad_inputs.py`.
 
 ## Start the application
 

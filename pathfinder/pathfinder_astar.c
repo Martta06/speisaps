@@ -364,7 +364,7 @@ bool astar_find_path(const DemContext              *ctx,
                 }
             }
 
-            /* Evaluar parámetros estrictamente reales con la función de coste limpia */
+            /* Evaluar el coste del segmento */
             EdgeParams ep = {
                 .delta_s_m          = step_dist,
                 .delta_z_m          = dz,
