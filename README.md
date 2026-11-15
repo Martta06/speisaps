@@ -64,7 +64,7 @@ Open the **Local** URL printed by Vite, usually <http://localhost:5173>. Keep bo
 ## Troubleshooting
 
 - **Map loads but route requests return HTTP 502.** Open <http://127.0.0.1:8000/api/health>. If it is unreachable, check Terminal 1. If it responds, verify that the Vite proxy forwards `/api` to `http://127.0.0.1:8000`.
-- **Route calculation fails.** Check `bin_exists` and `dem_exists` in the health response. Both should be `true`. If the API returns HTTP 422, try another destination or travel mode.
+- **Route calculation fails or Windows Defender flags `martian_pathfinder.exe`.** Unsigned MinGW-compiled binaries can occasionally trigger a Windows Defender false positive. Allow `pathfinder/martian_pathfinder.exe` in Windows Security (*Protection history*) or recompile it locally via `pathfinder\build_windows.bat`. Check `bin_exists` and `dem_exists` in `/api/health` (both should be `true`). If the API returns HTTP 422, try another destination or travel mode.
 - **Routes work but environmental layers are unavailable.** Check Terminal 1 for the model initialization error. Verify the DLL architecture and model input files, then restart Flask.
 
 Press **Ctrl+C** in each terminal to stop the application.
