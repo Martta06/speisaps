@@ -5,7 +5,7 @@ REM ============================================================================
 
 echo [Speisaps] Compilando martian_pathfinder.exe para Windows...
 
-gcc -O3 -std=c11 -fopenmp ^
+gcc -O3 -std=c11 -static ^
     params.c ^
     mars_geo.c ^
     terrain_cost.c ^
