@@ -74,8 +74,9 @@ def spawn_random_storm(custom_data=None):
     diameter_m = float(data.get("diameterM", random.uniform(4000.0, 8500.0)))
     wind_speed = float(data.get("windSpeedMs", random.uniform(18.0, 28.0)))
     heading_rad = random.uniform(-math.pi / 3.0, math.pi / 3.0)  # Deriva predominante Oeste -> Este
-    ve = float(data.get("velEastMs", wind_speed * 0.5 * math.cos(heading_rad)))
-    vn = float(data.get("velNorthMs", wind_speed * 0.5 * math.sin(heading_rad)))
+    drift_speed = random.uniform(0.02, 0.05)  # Deriva suave para que coincida con el círculo en pantalla
+    ve = float(data.get("velEastMs", drift_speed * math.cos(heading_rad)))
+    vn = float(data.get("velNorthMs", drift_speed * math.sin(heading_rad)))
     danger = int(data.get("dangerLevel", min(5, max(1, int(round((wind_speed - 10.0) / 4.0))))))
 
     STORM_STATE.update({
@@ -91,7 +92,7 @@ def spawn_random_storm(custom_data=None):
         "diameter_m": diameter_m,
         "danger_level": danger,
         "wind_speed_ms": round(wind_speed, 1),
-        "severity_penalty": float(data.get("severityPenalty", 10.0 * danger)),
+        "severity_penalty": float(data.get("severityPenalty", 80.0 + 40.0 * danger)),
     })
 
 def get_current_storm_snapshot():
@@ -107,12 +108,12 @@ def get_current_storm_snapshot():
         motion = "stationary"
     else:
         dt = max(0.0, time.time() - STORM_STATE["spawn_time"])
-        # Aceleración visual x10 para la demo en vivo si no se especifica otra cosa
-        sim_dt = dt * 10.0
+        # Avance visual suave en el mapa (~15-20 m cada 2s)
+        sim_dt = dt * 250.0
         cur_lon = STORM_STATE["spawn_lon"] + (STORM_STATE["vel_east_ms"] * sim_dt) / M_PER_DEG_LON
         cur_lat = STORM_STATE["spawn_lat"] + (STORM_STATE["vel_north_ms"] * sim_dt) / M_PER_DEG_LAT
-        ve_effective = round(STORM_STATE["vel_east_ms"], 2)
-        vn_effective = round(STORM_STATE["vel_north_ms"], 2)
+        ve_effective = round(STORM_STATE["vel_east_ms"], 4)
+        vn_effective = round(STORM_STATE["vel_north_ms"], 4)
         motion = "approaching" if STORM_STATE["vel_east_ms"] >= 0 else "receding"
 
     radius_m = STORM_STATE["diameter_m"] / 2.0

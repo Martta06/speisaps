@@ -97,14 +97,18 @@ export function addStormOverlay(map) {
         }
 
         const dangerLevel = Math.floor(randomBetween(1, 6)); // 1..5
-        const diameterM = Math.round(randomBetween(2800, 8800));
+        const diameterM = Math.round(randomBetween(3500, 8500));
         const windSpeedMs = Number(randomBetween(12 + dangerLevel * 3, 18 + dangerLevel * 4.5).toFixed(1));
         const angle = randomBetween(-Math.PI * 0.75, Math.PI * 0.75);
-        const driftSpeed = windSpeedMs * 0.45;
-        const velEastMs = Number((driftSpeed * Math.cos(angle)).toFixed(2));
-        const velNorthMs = Number((driftSpeed * Math.sin(angle)).toFixed(2));
+        // Velocidad de deriva para la predicción en C (~0.02 - 0.05 m/s):
+        // desplaza el centro ~60-150 m durante la travesía para sesgar el rodeo por barlovento,
+        // pero manteniendo el núcleo bloqueado alineado con el círculo visible en pantalla.
+        const driftSpeed = randomBetween(0.02, 0.05);
+        const velEastMs = Number((driftSpeed * Math.cos(angle)).toFixed(4));
+        const velNorthMs = Number((driftSpeed * Math.sin(angle)).toFixed(4));
         const motion = velEastMs >= 0 ? 'approaching' : 'receding';
-        const severityPenalty = Number((dangerLevel * 12.0).toFixed(1));
+        // Multiplicador alto para que tanto el núcleo como la periferia fuercen un rodeo claro
+        const severityPenalty = Number((80.0 + dangerLevel * 40.0).toFixed(1));
 
         return {
             center: [Number(lon.toFixed(6)), Number(lat.toFixed(6))],
@@ -235,7 +239,7 @@ export function addStormOverlay(map) {
         function frame() {
             if (isFrozen) return;
             const seconds = (performance.now() - startedAt) / 1000;
-            const simulatedSeconds = seconds * 15; // aceleración visual suave
+            const simulatedSeconds = seconds * 250; // avance visual suave (~15-20 m cada 2s en el mapa)
             const curLon = spec.center[0] + (spec.velEastMs * simulatedSeconds) / xScale;
             const curLat = spec.center[1] + (spec.velNorthMs * simulatedSeconds) / yScale;
 
