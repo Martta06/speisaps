@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+        width="32" height="32" viewBox="0 0 32 32">
+    <circle cx="16" cy="16" r="15"
+        fill="#FFB347" stroke="#07121A" stroke-width="2"/>
+    <g fill="none" stroke="#07121A" stroke-width="2.1"
+        stroke-linecap="round" stroke-linejoin="round">
+        <!-- Rover mast & camera -->
+        <path d="M20 13V8.5"/>
+        <rect x="18" y="6.5" width="4.5" height="2.5" rx="0.8" fill="#07121A"/>
+        <!-- Rover chassis -->
+        <rect x="8" y="13" width="16" height="5.5" rx="1.8" fill="#07121A"/>
+        <!-- Rocker-bogie wheels -->
+        <circle cx="9.5" cy="22" r="2.3" fill="#FFB347"/>
+        <circle cx="16" cy="22" r="2.3" fill="#FFB347"/>
+        <circle cx="22.5" cy="22" r="2.3" fill="#FFB347"/>
+    </g>
+</svg>

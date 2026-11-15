@@ -122,6 +122,8 @@ bool astar_find_path(const DemContext              *ctx,
     DynamicEnvironmentState env_local = env_state_calm(MODE_FOOT_EVA);
     if (env) env_local = *env;
     const float shielding = (float)env_local.vehicle_shielding;
+    /* Velocidad nominal: ~1.25 m/s en Rover vs ~0.50 m/s a pie en traje EVA */
+    const double v_nom_ms = (shielding < 0.95f) ? 1.25 : 0.50;
 
     int sx, sy, gx, gy;
     dem_geo_to_pixel(ctx, start_lon, start_lat, &sx, &sy);
@@ -237,8 +239,8 @@ bool astar_find_path(const DemContext              *ctx,
             double dz = (double)(z_next - z_curr);
             double slope = mars_slope_deg(dz, step_dist);
 
-            /* Tiempo de cruce de este tramo */
-            double dt = traversal_time_step(step_dist, slope, 1.0);
+            /* Tiempo de cruce de este tramo (Rover ~1.25 m/s vs EVA a pie ~0.50 m/s) */
+            double dt = traversal_time_step(step_dist, slope, v_nom_ms);
             double tentative_t = t_curr + dt;
 
             /* Hora solar local estimada al atravesar este tramo */

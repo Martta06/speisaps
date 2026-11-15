@@ -9,30 +9,55 @@ const UPDATE_MS = 2000;
 
 export function addRover(map) {
     const status = document.getElementById('rover-status');
+    const travelModeSelect = document.getElementById('travel-mode');
     const marker = new Feature();
 
-    const icon = new Icon({
-        src: `${import.meta.env.BASE_URL}icons/user-round.svg`,
+    const roverIcon = new Icon({
+        src: `${import.meta.env.BASE_URL}icons/rover.svg`,
         anchor: [0.5, 0.5],
     });
 
+    const evaIcon = new Icon({
+        src: `${import.meta.env.BASE_URL}icons/eva-walk.svg`,
+        anchor: [0.5, 0.5],
+    });
+
+    let currentMode = travelModeSelect?.value === 'eva' ? 'eva' : 'rover';
+
     const label = new Text({
-        text: 'Rover',
+        text: currentMode === 'eva' ? 'Astronaut' : 'Rover',
         font: '600 11px system-ui',
         fill: new Fill({ color: '#ffffff' }),
         stroke: new Stroke({ color: '#07121a', width: 3 }),
     });
 
-    const roverStyle = new Style({ image: icon, text: label });
+    const roverStyle = new Style({
+        image: currentMode === 'eva' ? evaIcon : roverIcon,
+        text: label,
+    });
+
+    function setMode(mode) {
+        currentMode = mode === 'eva' ? 'eva' : 'rover';
+        label.setText(currentMode === 'eva' ? 'Astronaut' : 'Rover');
+        roverStyle.setImage(currentMode === 'eva' ? evaIcon : roverIcon);
+        marker.changed();
+    }
+
+    if (travelModeSelect) {
+        travelModeSelect.addEventListener('change', () => {
+            setMode(travelModeSelect.value);
+        });
+    }
 
 // Use the initial overview as the reference zoom.
     const overviewResolution = map.getView().getResolution();
 
     marker.setStyle((_feature, resolution) => {
         const zoomFactor = Math.sqrt(overviewResolution / resolution);
-        const sizePx = Math.max(14, Math.min(24, 16 * zoomFactor));
+        const sizePx = Math.max(14, Math.min(26, 17 * zoomFactor));
 
-        icon.setScale(sizePx / 32); // The SVG is 32 px wide.
+        const activeIcon = currentMode === 'eva' ? evaIcon : roverIcon;
+        activeIcon.setScale(sizePx / 32); // The SVG is 32 px wide.
         label.setOffsetY(-(sizePx / 2 + 8));
 
         return roverStyle;

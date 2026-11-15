@@ -8,10 +8,10 @@
 
 TraversalLimits limits_default_foot_eva(void) {
     return (TraversalLimits){
-        .max_slope_deg      = 20.0,
-        .max_roughness      = 0.80,
-        .min_temp_c         = -80.0, /* límite del sistema térmico del traje */
-        .max_temp_c         = 20.0
+        .max_slope_deg      = 25.0,
+        .max_roughness      = 0.88,
+        .min_temp_c         = -100.0, /* evita bloqueo duro a las 00:00-06:00; el frío penaliza vía w_temp=1.5 */
+        .max_temp_c         = 35.0
     };
 }
 
