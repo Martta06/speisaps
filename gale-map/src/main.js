@@ -98,15 +98,27 @@ elevationSource.on('imageloaderror', () => {
 });
 
 addEnvironmentPanel(map, galeExtent);
-addStormOverlay(map);
-
-// const storms = addStormOverlay(map);  (Unirlo cuando esté el backend)
+const storms = addStormOverlay(map);
+const solar = addSolarAlert();
+const rover = addRover(map);
+addRoutePlanner(map, galeExtent, rover, {
+  getSolarState: solar.getSolarState,
+  getCurrentStorm: storms.getCurrentStorm,
+});
 
 let stormTimer;
 let stopped = false;
 let stormRequest;
 
 async function refreshStorm() {
+  if (stopped) return;
+
+  // Solo hacemos polling al backend cuando hay una tormenta activa en movimiento gestionada por el servidor
+  if (!storms.getCurrentStorm()?.active || storms.getCurrentStorm()?.frozen || storms.isLocalFallback?.()) {
+    stormTimer = setTimeout(refreshStorm, 2000);
+    return;
+  }
+
   stormRequest = new AbortController();
 
   try {
@@ -119,18 +131,17 @@ async function refreshStorm() {
     }
 
     const data = await response.json();
-    if (stopped) return;
+    if (stopped || storms.isLocalFallback?.()) return;
 
+    const wasActive = Boolean(storms.getCurrentStorm()?.active);
     storms.updateStorm(data);
-  } catch (error) {
-    if (stopped) return;
-    console.warn('Storm updates unavailable', error);
-
-    const alert = document.getElementById('storm-alert');
-    if (!alert.hidden) {
-        document.getElementById('storm-details').textContent =
-          'Signal lost · Showing last known storm position.';
+    const isActive = Boolean(storms.getCurrentStorm()?.active);
+    if (wasActive && !isActive) {
+      window.dispatchEvent(new CustomEvent('storm-change', { detail: null }));
     }
+  } catch (error) {
+    if (stopped || storms.isLocalFallback?.()) return;
+    console.warn('Storm updates unavailable', error);
   } finally {
     if (!stopped) {
       stormTimer = setTimeout(refreshStorm, 2000);
@@ -147,10 +158,6 @@ if (import.meta.hot) {
     stormRequest?.abort();
   });
 }
-
-const rover = addRover(map);
-addRoutePlanner(map, galeExtent, rover);
-addSolarAlert();
 
 
 const missionLog = document.getElementById('mission-log');

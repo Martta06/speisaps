@@ -49,7 +49,7 @@ function readRoutePoints(data) {
 
     return geometry?.coordinates;
     }
-export function addRoutePlanner(map, extent, rover) {
+export function addRoutePlanner(map, extent, rover, envHooks = {}) {
     const form = document.getElementById('route-form');
     const panel = document.getElementById('route-panel');
     const status = document.getElementById('route-status');
@@ -57,6 +57,7 @@ export function addRoutePlanner(map, extent, rover) {
     const hour = document.getElementById('sol-hour');
     const travelMode = document.getElementById('travel-mode');
     const source = new VectorSource({ wrapX: false });
+    const { getSolarState, getCurrentStorm } = envHooks;
 
   // Above the environmental overlay, which uses zIndex 5.
     map.addLayer(new VectorLayer({ source, zIndex: 20 }));
@@ -190,27 +191,35 @@ export function addRoutePlanner(map, extent, rover) {
         status.textContent = 'Departure time updated. Select Find route to recalculate.';
     });
 
-    form.addEventListener('submit', async event => {
-        event.preventDefault();
+    async function calculateRoute({ autoRecalc = false } = {}) {
         setPicking(null);
         clearRoute();
 
         const origin = readPoint('origin');
         const destination = readPoint('destination');
         if (!origin || !destination) {
-            status.textContent = 'Choose two points inside the map.';
+            if (!autoRecalc) {
+                status.textContent = 'Choose two points inside the map.';
+            }
             return;
         }
 
         if (origin[0] === destination[0] && origin[1] === destination[1]) {
-            status.textContent = 'Choose a destination different from the origin.';
+            if (!autoRecalc) {
+                status.textContent = 'Choose a destination different from the origin.';
+            }
             return;
         }
+
+        const solarState = getSolarState?.() ?? { speActive: false, speRate: 0, speMultiplier: 1.0, speOnset: 0 };
+        const stormState = getCurrentStorm?.() ?? null;
 
         const controller = new AbortController();
         pending = controller;
         submit.disabled = true;
-        status.textContent = 'Finding route…';
+        status.textContent = autoRecalc
+            ? 'Emergency condition updated · Recalculating route…'
+            : 'Finding route…';
 
         try {
             const response = await fetch('/api/route', {
@@ -223,6 +232,11 @@ export function addRoutePlanner(map, extent, rover) {
                     localHour: Number(hour.value),
                     mode: travelMode.value,
                     stepMeters: 20,
+                    speActive: Boolean(solarState.speActive),
+                    speRate: solarState.speRate ?? 0,
+                    speMultiplier: solarState.speMultiplier ?? 1.0,
+                    speOnset: solarState.speOnset ?? 0,
+                    dustStorm: stormState?.active ? stormState : { active: false },
                 }),
             });
 
@@ -253,7 +267,7 @@ export function addRoutePlanner(map, extent, rover) {
                 }
 
                 return [lon, lat];
-                });
+            });
 
             route = new Feature({
                 geometry: new LineString(mapCoordinates),
@@ -267,7 +281,24 @@ export function addRoutePlanner(map, extent, rover) {
             // Collapse the controls so the route is easier to see.
             panel.open = false;
             fitRouteView();
-            status.textContent = 'Route ready.';
+
+            const distKm = Number.isFinite(data.distance_m)
+                ? `${(data.distance_m / 1000).toFixed(2)} km`
+                : null;
+            const durMin = Number.isFinite(data.duration_s)
+                ? `${Math.round(data.duration_s / 60)} min`
+                : null;
+            const doseUsv = Number.isFinite(data.radiation_dose_msv)
+                ? `${(data.radiation_dose_msv * 1000).toFixed(1)} µSv`
+                : null;
+
+            const tags = [distKm, durMin, doseUsv].filter(Boolean);
+            if (solarState.speActive) tags.push('SPE shelter priority');
+            if (stormState?.active) tags.push('Dust storm detour');
+
+            status.textContent = tags.length > 0
+                ? `Route ready · ${tags.join(' · ')}`
+                : 'Route ready.';
         } catch (error) {
             if (controller.signal.aborted) return;
             console.error(error);
@@ -277,6 +308,23 @@ export function addRoutePlanner(map, extent, rover) {
                 pending = null;
                 submit.disabled = false;
             }
+        }
+    }
+
+    form.addEventListener('submit', event => {
+        event.preventDefault();
+        calculateRoute({ autoRecalc: false });
+    });
+
+    window.addEventListener('solar-change', () => {
+        if (readPoint('origin') && readPoint('destination')) {
+            calculateRoute({ autoRecalc: true });
+        }
+    });
+
+    window.addEventListener('storm-change', () => {
+        if (readPoint('origin') && readPoint('destination')) {
+            calculateRoute({ autoRecalc: true });
         }
     });
 }
